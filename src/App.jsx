@@ -1,675 +1,1631 @@
-import { useState, useEffect } from 'react'
-import { supabase, CLIENT } from './supabase.js'
-import {
-  ComposedChart, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ReferenceLine
-} from 'recharts'
+import React from "react";
+import { useState, useRef } from "react";
+import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
-const PASSWORD    = 'strand2026!'
-const SESSION_KEY = 'strand_auth'
-const ACCENT      = '#60a5fa'   // blue
+const STYLE = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  ::-webkit-scrollbar{width:4px;height:4px;} ::-webkit-scrollbar-track{background:#0a0f1a;} ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:2px;}
+  .tab-btn{background:none;border:none;cursor:pointer;font-family:inherit;transition:all 0.18s;}
+  .tab-btn:hover{color:#60a5fa!important;}
+  .kpi-card{transition:transform 0.18s;}
+  .kpi-card:hover{transform:translateY(-2px);}
+  .yr-btn{background:none;border:1px solid #1e2d45;border-radius:6px;padding:4px 12px;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px;color:#64748b;transition:all 0.18s;}
+  .yr-btn:hover{border-color:#3b82f6;color:#93c5fd;}
+  .yr-btn.active{background:#1e3a5f;border-color:#3b82f6;color:#60a5fa;}
+  .mode-btn{padding:6px 14px;border:none;cursor:pointer;font-family:'DM Mono',monospace;font-size:11px;transition:all 0.18s;}
+  .upload-zone{border:2px dashed #1e3a5f;border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:all 0.2s;}
+  .upload-zone:hover{border-color:#3b82f6;background:#0c1e35;}
+  .tbl-row:hover td{background:#0c1e35!important;}
+  .mpill{display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:4px 7px;border-radius:6px;cursor:pointer;border:1px solid transparent;transition:all 0.15s;font-family:'DM Mono',monospace;background:none;}
+  .mpill:hover{border-color:#3b82f6;}
+  .mpill.in-range{background:#0d1e35;border-color:#1e3a5f;}
+  .mpill.is-edge-act{background:#1e3a5f;border-color:#3b82f6;}
+  .mpill.is-edge-comp{background:#2a1800;border-color:#f59e0b;}
+  select.psel{background:#0c1420;border:1px solid #1e2d45;border-radius:6px;padding:5px 10px;color:#94a3b8;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;outline:none;}
+`;
 
-const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
 
-// ─── ALL SEED DATA ─────────────────────────────────────────────────────────────
-const SEED = {
-  // ── CONSOLIDATED GROUP ──────────────────────────────────────────────────────
-  group: {
-    2024: {
-      revenue:      [32561.8,0,4320,5966.74,3884.7,10273.99,1000,111266.34,205991.19,242533.92,235221.87,4043308.37],
-      materials:    [-24211.8,-9798.39,0,0,-3884.7,-11783.99,-5444.36,-254731.95,-220514.05,-161617.24,-76384.96,-2620567.81],
-      employee_cost:[-5020.79,-2157.3,-6710.59,-7001.26,-4553.29,-13979.27,-23824.84,-65828.52,-43823.63,-49818.19,-48869.03,-564219.78],
-      dep_tangible: [0,0,0,0,0,0,0,0,0,0,0,-283676.63],
-      ebitda:       [-97010.29,-45569.53,117461.23,-5812.55,-37668.88,-59504.83,-103451.75,-407264.14,-153622.85,-226500.24,-39743.62,-592446.39],
-      ebit:         [-97010.29,-45569.53,117461.23,-5812.55,-37668.88,-59504.83,-103451.75,-407264.14,-153622.85,-226500.24,-39743.62,-876123.02],
-      fin_expenses: [-808.89,-778.84,-1186.47,-1723.56,-1039.14,-839.04,-898.33,-6.04,98.33,-1570.39,-965.13,-7821.77],
-      profit_loss:  [-97819.18,-46331.58,116274.76,-7529.06,-38469.69,-60335.12,-104348.57,-407252.92,-153515.11,-227941.97,-40698.06,-712587.68],
-    },
-    2025: {
-      revenue:      [313053.49,425754.07,690001.21,443617.06,657178.22,438972.23,614450.44,358980.85,408744.75,606830.31,877625.58,741576.63],
-      materials:    [-227378.58,-283075.94,-269221.18,-345262.46,-268386.41,-402205.54,-377217.48,-168686.84,-147351.35,-352455.42,-541175.89,-266345.19],
-      employee_cost:[-93571.48,-91475.26,-86154.07,-84328.81,-81836.56,-93380.96,-69772.84,-85385.4,-99536.51,-136212.44,-133651.73,-199856.25],
-      dep_tangible: [-32243.86,-32757.42,-33889.39,-34927.11,-35057.46,-41032.89,-49746.05,-41443.74,-34575.02,-39200.54,-39209.11,-123904.32],
-      ebitda:       [-222681.77,-220014.96,166859.65,-211151.99,-36871.01,-474818.83,-98149.38,-155829.52,-78421.66,-156763.08,-225.45,47574.1],
-      ebit:         [-254925.63,-252772.38,132970.26,-246079.1,-71928.47,-515851.72,-147895.43,-197273.26,-112996.68,-195963.62,-39434.56,-76330.22],
-      fin_expenses: [-179.4,-765.82,-8628.99,-3011.29,-75.28,-3681.34,-2863,-296.87,-1853.28,-14387.16,-702.67,-3203.81],
-      profit_loss:  [-254916.89,-253531.45,124272.17,-249035.06,-71957.85,-519444.5,-150768.43,-197540.13,-114582.87,-209651.91,-38058.1,-79517.8],
-    },
-    2026: {
-      revenue:      [457793.48,524028.23,555022.78,588232.84,623835.75,662024.4,703008.63,747016.84,794297.69,845122.06,899785.05,958608.34],
-      materials:    [-283942.03,-318799.15,-321452.41,-324371,-327581.45,-331112.95,-334997.59,-339270.7,-343971.12,-349141.59,-354829.1,-361085.35],
-      employee_cost:[-120984.54,-135413.25,-139124.33,-148614.66,-152706.12,-157002.15,-161512.99,-166249.37,-171222.57,-176444.43,-181927.38,-187684.48],
-      dep_tangible: [-38342.26,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88,-44212.88],
-      ebitda:       [-128294.92,-194125.97,-169495.76,-148694.62,-120393.62,-90032.5,-57443.75,-22445.03,15162.2,55594.25,99086.78,145896.71],
-      ebit:         [-166637.18,-238338.84,-213708.63,-192907.49,-164606.49,-134245.38,-101656.63,-66657.91,-29050.67,11381.37,54873.9,101683.84],
-      fin_expenses: [-2359.99,-1810.37,-1740.37,-1670.37,-1600.37,-1530.37,-1460.37,-1390.37,-1320.37,-1250.37,-1180.37,-4027.04],
-      profit_loss:  [-168996.31,-240087.48,-215387.27,-194516.13,-166145.13,-135714.01,-103055.26,-67986.55,-30309.31,10192.73,53755.27,97718.54],
-    },
-    bs: {
-      2024: { intangible:2100005, tangible:375077, lt_invest:65691, total_noncurrent:2540773, inventory:80000, trade_rec:99048, cash:186169, total_current:1433202, total_assets:3973974, total_equity:1780520, retained_earnings:-1239061, long_term_loan:837333, trade_payables:502993, total_liabilities:2193434 },
-      2025: { intangible:2988544, tangible:300026, lt_invest:95034, total_noncurrent:3383603, inventory:80000, trade_rec:167573, cash:396476, total_current:2241241, total_assets:5624845, total_equity:2390859, retained_earnings:-3495831, long_term_loan:260000, trade_payables:940981, total_liabilities:3233965 },
-      2026: { intangible:2496601, tangible:233575, lt_invest:94528, total_noncurrent:2824704, inventory:80000, trade_rec:403158, cash:128152, total_current:2081093, total_assets:4905798, total_equity:1668748, retained_earnings:-5592784, long_term_loan:643000, trade_payables:504603, total_liabilities:3237080 },
-    },
-  },
-  // ── ENTITIES ─────────────────────────────────────────────────────────────────
-  sfg: {
-    2024: {
-      revenue:      [32562,0,4320,5967,3885,10274,1000,100280,112326,127104,77198,159690],
-      ebitda:       [-97010,-45570,117461,-5813,-35523,-45331,-31265,-87624,-71113,-19000,11531,-76034],
-      ebit:         [-97010,-45570,117461,-5813,-35523,-45331,-31265,-87624,-71113,-19000,11531,-248873],
-      profit_loss:  [-97819,-46332,116275,-7529,-36324,-46149,-32128,-87606,-71008,-20502,10738,-178054],
-    },
-    2025: {
-      revenue:      [10333,51612,105596,64790,141824,221756,68903,79192,67957,7445,90522,50258],
-      ebitda:       [-91171,-100798,10887,-56096,-74222,-49062,-18234,-36173,-82094,-117371,-60383,38230],
-      ebit:         [-106565,-116193,-5508,-73490,-91616,-72645,-50561,-60350,-98771,-139048,-82059,-68544],
-      profit_loss:  [-106669,-116198,-14118,-76432,-91616,-76311,-52424,-60359,-100666,-152792,-82601,-72015],
-    },
-    2026: {
-      revenue:      [22946,22946,22946,22946,22946,22946,22946,22946,22946,22946,22946,22946],
-      ebitda:       [-13317,3469,3469,3469,3469,3469,3469,3469,3469,3469,3469,3469],
-      ebit:         [-40642,-23855,-23855,-23855,-23855,-23855,-23855,-23855,-23855,-23855,-23855,-23855],
-      profit_loss:  [-40667,-25302,-25232,-25162,-25092,-25022,-24952,-24882,-24812,-24742,-24672,-27519],
-    },
-  },
-  digital: {
-    2024: {
-      revenue:      [0,0,0,0,0,0,0,102,47737,30451,53033,52170],
-      ebitda:       [0,0,0,0,-146,-6950,-19484,-28280,16427,-24871,14496,8614],
-      ebit:         [0,0,0,0,-146,-6950,-19484,-28280,16427,-24871,14496,-18720],
-      profit_loss:  [0,0,0,0,-146,-6962,-19484,-28280,16426,-24871,14496,-18717],
-    },
-    2025: {
-      revenue:      [31890,12099,46837,16835,69237,24581,6975,46338,31737,33574,42341,56079],
-      ebitda:       [-8658,-22705,-9167,-44171,30739,-32853,-45824,12344,-27442,-22517,-3243,22478],
-      ebit:         [-13550,-27597,-14059,-49063,25847,-37745,-50716,7451,-32334,-27409,-8135,17586],
-      profit_loss:  [-13550,-27610,-14129,-49073,25892,-37770,-50799,7475,-32021,-26813,-6123,17894],
-    },
-    2026: {
-      revenue:      [37293,37293,37293,37293,37293,37293,37293,37293,37293,37293,37293,37293],
-      ebitda:       Array(12).fill(-12678),
-      ebit:         Array(12).fill(-18548),
-      profit_loss:  Array(12).fill(-18548),
-    },
-  },
-  properties: {
-    2024: {
-      revenue:      [0,0,0,0,0,0,0,10884,45928,84979,104991,99316],
-      ebitda:       [0,0,0,0,-2000,-7224,-52702,-291360,-98936,-182629,-65771,-168535],
-      ebit:         [0,0,0,0,-2000,-7224,-52702,-291360,-98936,-182629,-65771,-241113],
-      profit_loss:  [0,0,0,0,-2000,-7224,-52737,-291366,-98933,-182569,-65933,-241277],
-    },
-    2025: {
-      revenue:      [58464,77609,104108,94642,83135,92863,97165,135891,156403,188988,253530,198013],
-      ebitda:       [-94240,-131063,4319,-37406,-139249,-226190,-125165,-60633,69807,28772,-41518,-104241],
-      ebit:         [-105182,-142602,-7239,-49036,-150980,-237740,-136716,-72184,57600,16909,-53381,-115674],
-      profit_loss:  [-105069,-142689,-7247,-49049,-151030,-237635,-136716,-72184,57427,16897,-53406,-115701],
-    },
-    2026: {
-      revenue:      [121050,133155,146471,161118,177230,194953,214448,235893,259482,285430,313973,345371],
-      ebitda:       [-40429,-110933,-103982,-96150,-87341,-77445,-66345,-53910,-39994,-24438,-7066,12318],
-      ebit:         [-50543,-121047,-114096,-106264,-97454,-87559,-76459,-64023,-50108,-34552,-17179,2205],
-      profit_loss:  [-50645,-121150,-114198,-106367,-97557,-87661,-76561,-64126,-50210,-34655,-17282,2102],
-    },
-  },
-  spain: {
-    2024: {
-      revenue:      [0,0,0,0,0,0,0,0,0,0,0,4365978],
-      ebitda:       [0,0,0,0,0,0,0,0,0,0,0,-341882],
-      ebit:         [0,0,0,0,0,0,0,0,0,0,0,-352808],
-      profit_loss:  [0,0,0,0,0,0,0,0,0,0,0,-259931],
-    },
-    2025: {
-      revenue:      [222699,337146,538658,332140,504807,330131,510311,176752,220604,384268,581755,487484],
-      ebitda:       [-25066,44989,164189,-72926,146009,-166311,38688,-70478,-35603,-45325,105017,91295],
-      ebit:         [-26082,44057,163144,-73936,144970,-167318,37713,-71302,-36403,-46094,104239,90489],
-      profit_loss:  [-26082,43403,163134,-73927,144945,-167325,36785,-71583,-36234,-46622,104171,13717],
-    },
-    2026: {
-      revenue:      [336743,353580,371259,389822,409313,429779,451268,473831,497523,522399,548519,575945],
-      ebitda:       [-74043,-73984,-56305,-43336,-23844,-3379,18110,40674,64365,89241,115361,142787],
-      ebit:         [-74947,-74888,-57209,-44240,-24749,-4283,17206,39769,63461,88337,114457,141883],
-      profit_loss:  [-77179,-75087,-57408,-44439,-24948,-4482,17007,39570,63262,88138,114258,141684],
-    },
-  },
-  developments: {
-    2024: {
-      revenue: Array(12).fill(0),
-      ebitda:  [0,0,0,0,0,0,0,0,0,0,0,-14609],
-      ebit:    [0,0,0,0,0,0,0,0,0,0,0,-14609],
-      profit_loss: [0,0,0,0,0,0,0,0,0,0,0,-14609],
-    },
-    2025: {
-      revenue: Array(12).fill(0),
-      ebitda:  [-3547,-10437,-3368,-554,-149,-403,52386,-889,-3089,-321,-98,-188],
-      ebit:    [-3547,-10437,-3368,-554,-149,-403,52386,-889,-3089,-321,-98,-188],
-      profit_loss: [-3547,-10437,-3368,-554,-149,-403,52386,-889,-3089,-321,-98,-188],
-    },
-    2026: {
-      revenue: Array(12).fill(0),
-      ebitda:  [-506,0,0,0,0,0,0,0,0,0,0,0],
-      ebit:    [-506,0,0,0,0,0,0,0,0,0,0,0],
-      profit_loss: [-506,0,0,0,0,0,0,0,0,0,0,0],
-    },
-  },
-}
+// ─── CLIENT CONFIG ───────────────────────────────────────────────────────────
+const PASSWORD    = 'strand2026!';
+const SESSION_KEY = 'strand_auth';
+const ACCENT      = '#60a5fa';
+const CLIENT_NAME = 'Strand Group';
 
-const DEADLINES = [
-  {month:'JAN',deadline:'18 Feb 2026'},
-  {month:'FEB',deadline:'18 Mar 2026'},
-  {month:'MAR',deadline:'15 Apr 2026'},
-  {month:'APR',deadline:'18 May 2026'},
-  {month:'MAY',deadline:'18 Jun 2026'},
-  {month:'JUN',deadline:'18 Aug 2026', note:'No Jul reporting'},
-  {month:'JUL',deadline:'18 Aug 2026'},
-  {month:'AUG',deadline:'17 Sep 2026'},
-  {month:'SEP',deadline:'18 Oct 2026'},
-  {month:'OCT',deadline:'18 Nov 2026'},
-  {month:'NOV',deadline:'17 Dec 2026'},
-  {month:'DEC',deadline:'18 Jan 2027'},
-]
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const BLUE="#3b82f6",GREEN="#22c55e",AMBER="#f59e0b",RED="#f87171",PURPLE="#a78bfa",CYAN="#06b6d4",SLATE="#64748b";
+const ACT_LAST_DEFAULT = 11;
 
-const ENTITIES = [
-  { key:'group',        label:'Strand Group',         accent:'#60a5fa', subtitle:'Consolidated' },
-  { key:'sfg',          label:'Family Group Oy',       accent:'#a78bfa', subtitle:'SFG Oy' },
-  { key:'digital',      label:'Digital Oy',            accent:'#34d399', subtitle:'Strand Digital' },
-  { key:'properties',   label:'Properties Oy',         accent:'#f59e0b', subtitle:'Strand Properties' },
-  { key:'spain',        label:'Properties SL',         accent:'#fb923c', subtitle:'Spain' },
-  { key:'developments', label:'Developments Oy',       accent:'#94a3b8', subtitle:'Strand Dev' },
-]
+const actBase = {
+  revenue:[313053,425754,690001,443617,657178,438972,614450,358981,408745,606830,877626,741577],
+  cogs:[227379,283076,269221,345262,268386,402206,377217,168687,147351,352455,541176,266345],
+  opex:[93571,91475,86154,84329,81837,93381,69773,85385,99537,136212,133652,199856],
+  ebitda:[-222682,-220015,166860,-211152,-36871,-474819,-98149,-155830,-78422,-156763,-225,47574],
+  depAmort:[32244,32757,33889,34927,35057,41033,49746,41444,34575,39201,39209,123904],
+  ebit:[-254926,-252772,132970,-246079,-71928,-515852,-147895,-197273,-112997,-195964,-39435,-76330],
+  finExpenses:[179,766,8629,3011,75,3681,2863,297,1853,14387,703,3204],
+  ebt:[-254917,-253531,124272,-249035,-71958,-519445,-150768,-197540,-114583,-209652,-37958,-79518],
+  tax:[0,0,0,0,0,0,0,0,0,0,0,0],
+  netProfit:[-254917,-253531,124272,-249035,-71958,-519445,-150768,-197540,-114583,-209652,-38058,-79518],
+  grossProfit:[85674,142678,420780,98355,388792,36766,237233,190294,261394,254375,336450,475232],
+  inventory:[80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000],
+  receivables:[95194,14235,40244,102389,52738,346148,88769,85319,147246,146540,202072,167573],
+  cash:[390887,389306,252994,260670,339797,180945,465933,507012,198208,229418,701990,396476],
+  otherCA:[871215,903659,884538,856782,857629,919731,907976,847211,839634,839541,838271,836864],
+  equity:[1777175,1500879,1785136,1627423,2530566,2115607,2102842,1623272,1445684,1755946,1830211,2390859],
+  ltDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  stDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  payables:[604484,705740,448719,1122280,845959,821849,928901,875109,840552,1117956,1429181,940981],
+  otherCL:[291884,261634,262516,304365,428851,314204,372708,435095,247194,299991,406177,366837],
+  tangibles:[2565045,2562461,2612100,2898373,3088693,3260213,3285054,3260914,3195803,3157290,3117879,3383603],
+};
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-const sum      = arr => (arr||[]).reduce((a,b) => a + (b||0), 0)
-const fmt      = (n, short=false) => {
-  if (n === null || n === undefined || isNaN(n)) return '–'
-  const abs = Math.abs(n)
-  if (short && abs >= 1000000) return (n/1000000).toFixed(2) + 'M'
-  if (short && abs >= 1000)    return (n/1000).toFixed(0) + 'k'
-  return new Intl.NumberFormat('fi-FI', {style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n)
-}
-const pct      = n => (n===null||isNaN(n)) ? '–' : (n*100).toFixed(1) + '%'
-const vc       = n => (n||0) >= 0 ? '#34d399' : '#f87171'
 
-// ─── UI ATOMS ─────────────────────────────────────────────────────────────────
-const KPI = ({ label, value, sub, color=ACCENT }) => (
-  <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,padding:'14px 18px',position:'relative',overflow:'hidden'}}>
-    <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:color}}/>
-    <div style={{fontSize:10,fontWeight:700,letterSpacing:'0.12em',color:'#475569',textTransform:'uppercase',marginBottom:6}}>{label}</div>
-    <div style={{fontSize:20,fontWeight:700,color:'#f1f5f9',fontFamily:'monospace'}}>{value}</div>
-    {sub && <div style={{fontSize:11,color:'#475569',marginTop:3}}>{sub}</div>}
-  </div>
-)
+const budBase = {
+  revenue:     [457793.48,524028.23,555022.78,588232.84,623835.75,662024.4,703008.63,747016.84,794297.69,845122.06,899785.05,958608.34],
+  cogs:        [283942.03,318799.15,321452.41,324371,327581.45,331112.95,334997.59,339270.7,343971.12,349141.59,354829.1,361085.35],
+  opex:        [120984.54,135413.25,139124.33,148614.66,152706.12,157002.15,161512.99,166249.37,171222.57,176444.43,181927.38,187684.48],
+  ebitda:      [-128294.92,-194125.97,-169495.76,-148694.62,-120393.62,-90032.5,-57443.75,-22445.03,15162.2,55594.25,99086.78,145896.71],
+  depAmort:    [38342.26,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88],
+  ebit:        [-166637.18,-238338.84,-213708.63,-192907.49,-164606.49,-134245.38,-101656.63,-66657.91,-29050.67,11381.37,54873.9,101683.84],
+  finExpenses: [2359.99,1810.37,1740.37,1670.37,1600.37,1530.37,1460.37,1390.37,1320.37,1250.37,1180.37,4027.04],
+  ebt:         [-168996.31,-240087.48,-215387.27,-194516.13,-166145.13,-135714.01,-103055.26,-67986.55,-30309.31,10192.73,53755.27,97718.54],
+  tax:         [0,0,0,0,0,0,0,0,0,0,0,0],
+  netProfit:   [-168996.31,-240087.48,-215387.27,-194516.13,-166145.13,-135714.01,-103055.26,-67986.55,-30309.31,10192.73,53755.27,97718.54],
+  inventory:   [80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000],
+  receivables: [403158,403158,403158,403158,403158,403158,403158,403158,403158,403158,403158,403158],
+  payables:    [504603,504603,504603,504603,504603,504603,504603,504603,504603,504603,504603,504603],
+  equity:      [1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748],
+  cash:        [128152,128152,128152,128152,128152,128152,128152,128152,128152,128152,128152,128152],
+  ltDebt:      [643000,643000,643000,643000,643000,643000,643000,643000,643000,643000,643000,643000],
+  stDebt:      [0,0,0,0,0,0,0,0,0,0,0,0],
+  otherCL:     [2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106],
+  grossProfit: [457793.48,524028.23,555022.78,588232.84,623835.75,662024.4,703008.63,747016.84,794297.69,845122.06,899785.05,958608.34].map((v,i)=>v-[283942.03,318799.15,321452.41,324371,327581.45,331112.95,334997.59,339270.7,343971.12,349141.59,354829.1,361085.35][i]),
+};
 
-const ST = ({ children, mt=28 }) => (
-  <div style={{fontSize:10,fontWeight:700,letterSpacing:'0.14em',textTransform:'uppercase',color:'#334155',marginBottom:12,marginTop:mt,paddingBottom:6,borderBottom:'1px solid rgba(255,255,255,0.05)'}}>{children}</div>
-)
 
-const YBtn = ({ year, label, active, onClick }) => (
-  <button onClick={onClick} style={{padding:'4px 14px',borderRadius:16,border:'none',cursor:'pointer',background:active?ACCENT:'rgba(255,255,255,0.05)',color:active?'#080b12':'#64748b',fontWeight:700,fontSize:12,fontFamily:'inherit',transition:'all 0.12s'}}>{label||year}</button>
-)
+const DATA_BY_YEAR = {
+  "2024": {
+  revenue:[32562,0,4320,5967,3885,10274,1000,111266,205991,242534,235222,4043308],
+  cogs:[24212,9798,0,0,3885,11784,5444,254732,220514,161617,76385,2620568],
+  opex:[5021,2157,6711,7001,4553,13979,23825,65829,43824,49818,48869,564220],
+  ebitda:[-97010,-45570,117461,-5813,-37669,-59505,-103452,-407264,-153623,-226500,-39744,-592446],
+  depAmort:[0,0,0,0,0,0,0,0,0,0,0,283677],
+  ebit:[-97010,-45570,117461,-5813,-37669,-59505,-103452,-407264,-153623,-226500,-39744,-876123],
+  finExpenses:[809,779,1186,1724,1039,839,898,6,-98,1570,965,7822],
+  ebt:[-97819,-46332,116275,-7529,-38470,-60335,-104349,-407253,-153515,-227942,-40698,-810911],
+  tax:[0,0,0,0,0,0,0,0,0,0,0,0],
+  netProfit:[-97819,-46332,116275,-7529,-38470,-60335,-104349,-407253,-153515,-227942,-40698,-712588],
+  grossProfit:[8350,-9798,4320,5967,0,-1510,-4444,-143466,-14523,80917,158837,1422740],
+  inventory:[0,0,0,0,0,0,0,0,0,0,0,80000],
+  receivables:[34242,15447,19767,25733,65745,75332,81496,138000,240449,331214,411801,99048],
+  cash:[171271,118438,189548,196745,94094,1079473,577896,152195,48934,65583,55463,186169],
+  otherCA:[2247505,2235649,2295468,2381686,3681843,2455346,3213110,3502973,3839190,3732823,3848892,912011],
+  equity:[1301041,1584648,1700923,1693394,3884873,4049653,3995302,3638047,3484532,3368370,3390305,1780520],
+  ltDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  stDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  payables:[402992,101115,121992,225618,219578,108330,290838,675084,658554,617904,487783,502993],
+  otherCL:[794,1274,1350,1353,873,1153,5004,33204,39663,42497,54850,231391],
+  tangibles:[571394,571394,753730,964845,995786,1097408,1522332,1820599,1989410,2138115,2231310,2540773],
+},
+  "2025": {
+  revenue:[313053,425754,690001,443617,657178,438972,614450,358981,408745,606830,877626,741577],
+  cogs:[227379,283076,269221,345262,268386,402206,377217,168687,147351,352455,541176,266345],
+  opex:[93571,91475,86154,84329,81837,93381,69773,85385,99537,136212,133652,199856],
+  ebitda:[-222682,-220015,166860,-211152,-36871,-474819,-98149,-155830,-78422,-156763,-225,47574],
+  depAmort:[32244,32757,33889,34927,35057,41033,49746,41444,34575,39201,39209,123904],
+  ebit:[-254926,-252772,132970,-246079,-71928,-515852,-147895,-197273,-112997,-195964,-39435,-76330],
+  finExpenses:[179,766,8629,3011,75,3681,2863,297,1853,14387,703,3204],
+  ebt:[-254917,-253531,124272,-249035,-71958,-519445,-150768,-197540,-114583,-209652,-37958,-79518],
+  tax:[0,0,0,0,0,0,0,0,0,0,0,0],
+  netProfit:[-254917,-253531,124272,-249035,-71958,-519445,-150768,-197540,-114583,-209652,-38058,-79518],
+  grossProfit:[85674,142678,420780,98355,388792,36766,237233,190294,261394,254375,336450,475232],
+  inventory:[80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000],
+  receivables:[95194,14235,40244,102389,52738,346148,88769,85319,147246,146540,202072,167573],
+  cash:[390887,389306,252994,260670,339797,180945,465933,507012,198208,229418,701990,396476],
+  otherCA:[871215,903659,884538,856782,857629,919731,907976,847211,839634,839541,838271,836864],
+  equity:[1777175,1500879,1785136,1627423,2530566,2115607,2102842,1623272,1445684,1755946,1830211,2390859],
+  ltDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  stDebt:[0,0,0,0,0,0,0,0,0,0,0,0],
+  payables:[604484,705740,448719,1122280,845959,821849,928901,875109,840552,1117956,1429181,940981],
+  otherCL:[291884,261634,262516,304365,428851,314204,372708,435095,247194,299991,406177,366837],
+  tangibles:[2565045,2562461,2612100,2898373,3088693,3260213,3285054,3260914,3195803,3157290,3117879,3383603],
+},
+  "2026": {
+  revenue:     [457793.48,524028.23,555022.78,588232.84,623835.75,662024.4,703008.63,747016.84,794297.69,845122.06,899785.05,958608.34],
+  cogs:        [283942.03,318799.15,321452.41,324371,327581.45,331112.95,334997.59,339270.7,343971.12,349141.59,354829.1,361085.35],
+  opex:        [120984.54,135413.25,139124.33,148614.66,152706.12,157002.15,161512.99,166249.37,171222.57,176444.43,181927.38,187684.48],
+  ebitda:      [-128294.92,-194125.97,-169495.76,-148694.62,-120393.62,-90032.5,-57443.75,-22445.03,15162.2,55594.25,99086.78,145896.71],
+  depAmort:    [38342.26,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88,44212.88],
+  ebit:        [-166637.18,-238338.84,-213708.63,-192907.49,-164606.49,-134245.38,-101656.63,-66657.91,-29050.67,11381.37,54873.9,101683.84],
+  finExpenses: [2359.99,1810.37,1740.37,1670.37,1600.37,1530.37,1460.37,1390.37,1320.37,1250.37,1180.37,4027.04],
+  ebt:         [-168996.31,-240087.48,-215387.27,-194516.13,-166145.13,-135714.01,-103055.26,-67986.55,-30309.31,10192.73,53755.27,97718.54],
+  tax:         [0,0,0,0,0,0,0,0,0,0,0,0],
+  netProfit:   [-168996.31,-240087.48,-215387.27,-194516.13,-166145.13,-135714.01,-103055.26,-67986.55,-30309.31,10192.73,53755.27,97718.54],
+  inventory:   [80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000,80000],
+  receivables: [403158,403158,403158,403158,403158,403158,403158,403158,403158,403158,403158,403158],
+  payables:    [504603,504603,504603,504603,504603,504603,504603,504603,504603,504603,504603,504603],
+  equity:      [1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748,1668748],
+  cash:        [128152,128152,128152,128152,128152,128152,128152,128152,128152,128152,128152,128152],
+  ltDebt:      [643000,643000,643000,643000,643000,643000,643000,643000,643000,643000,643000,643000],
+  stDebt:      [0,0,0,0,0,0,0,0,0,0,0,0],
+  otherCL:     [2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106,2293106],
+  grossProfit: [457793.48,524028.23,555022.78,588232.84,623835.75,662024.4,703008.63,747016.84,794297.69,845122.06,899785.05,958608.34].map((v,i)=>v-[283942.03,318799.15,321452.41,324371,327581.45,331112.95,334997.59,339270.7,343971.12,349141.59,354829.1,361085.35][i]),
+},
+};
+// Compute grossProfit for each year
+Object.values(DATA_BY_YEAR).forEach(d => {
+  if(d.revenue && d.cogs && !d.grossProfit)
+    d.grossProfit = d.revenue.map((v,i) => v - (d.cogs[i]||0));
+});
 
-const TT = ({ active, payload, label }) => {
-  if (!active||!payload?.length) return null
+const fmt  = v => { const a=Math.abs(v),s=v<0?"-":""; return a>=1e6?s+"€"+(a/1e6).toFixed(2)+"M":a>=1e3?s+"€"+(a/1e3).toFixed(0)+"K":s+"€"+a.toFixed(0); };
+const fmtN = v => new Intl.NumberFormat("fi-FI",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(v);
+const vc   = v => v>=0?GREEN:RED;
+const sum  = a => a.reduce((s,v)=>s+v,0);
+const sl   = (arr,s,e) => arr?arr.slice(s,e+1):[];
+
+const Tt = ({active,payload,label}) => {
+  if(!active||!payload||!payload.length) return null;
   return (
-    <div style={{background:'#1e293b',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'10px 14px',fontSize:11}}>
-      <div style={{color:'#64748b',marginBottom:5,fontWeight:700}}>{label}</div>
-      {payload.map(p => <div key={p.dataKey} style={{color:p.color||p.fill,marginBottom:2}}>{p.name}: <strong>{fmt(p.value,true)}</strong></div>)}
+    <div style={{background:"#0a0f1a",border:"1px solid #1e2d45",borderRadius:8,padding:"10px 14px",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+      <div style={{color:SLATE,marginBottom:6}}>{label}</div>
+      {payload.map((p,i) => (
+        <div key={i} style={{color:p.color,marginBottom:2}}>
+          {p.name}: <span style={{color:"#e2e8f0"}}>{typeof p.value==="number"?fmtN(p.value):p.value}</span>
+        </div>
+      ))}
     </div>
-  )
-}
+  );
+};
 
-// ─── ENTITY P&L CARD (used in overview) ───────────────────────────────────────
-function EntityCard({ ent, yr, onClick, active }) {
-  const d = SEED[ent.key]?.[yr] || {}
-  const rev  = sum(d.revenue)
-  const ebit = sum(d.ebit)
-  const net  = sum(d.profit_loss)
+const SecTitle = ({c}) => (
+  <div style={{fontSize:11,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:16,paddingBottom:8,borderBottom:"1px solid #0f1e30"}}>{c}</div>
+);
+
+const Gauge = ({label,value,unit,target,targetLabel,color,desc,flip}) => {
+  const hit = flip ? +value<=target : +value>=target;
   return (
-    <div onClick={onClick} style={{background:active?'rgba(96,165,250,0.08)':'rgba(255,255,255,0.02)',border:`1px solid ${active?ent.accent:'rgba(255,255,255,0.07)'}`,borderRadius:10,padding:'14px 16px',cursor:'pointer',transition:'all 0.15s',position:'relative',overflow:'hidden'}}>
-      <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:ent.accent}}/>
-      <div style={{fontSize:11,fontWeight:700,color:'#f1f5f9',marginBottom:2}}>{ent.label}</div>
-      <div style={{fontSize:10,color:'#475569',marginBottom:10}}>{ent.subtitle}</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-        <div><div style={{fontSize:9,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>Revenue</div><div style={{fontSize:14,fontWeight:700,fontFamily:'monospace',color:'#94a3b8'}}>{fmt(rev,true)}</div></div>
-        <div><div style={{fontSize:9,color:'#334155',textTransform:'uppercase',letterSpacing:'0.08em'}}>Net P/L</div><div style={{fontSize:14,fontWeight:700,fontFamily:'monospace',color:vc(net)}}>{fmt(net,true)}</div></div>
+    <div className="kpi-card" style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:"18px 20px"}}>
+      <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{label}</div>
+      <div style={{fontSize:26,fontWeight:700,color,fontFamily:"'DM Mono',monospace",marginBottom:4}}>{value}{unit||""}</div>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+        <div style={{width:6,height:6,borderRadius:"50%",background:hit?GREEN:RED}}/>
+        <span style={{fontSize:11,color:hit?GREEN:RED}}>{hit?"On target":"Off target"} · {targetLabel}: {target}{unit||""}</span>
       </div>
+      <div style={{fontSize:10,color:"#334155"}}>{desc}</div>
     </div>
-  )
-}
+  );
+};
 
-// ─── P&L VIEW ─────────────────────────────────────────────────────────────────
-function PLView({ entityKey }) {
-  const [yr, setYr] = useState(2025)
-  const ent   = ENTITIES.find(e => e.key === entityKey)
-  const d     = SEED[entityKey]?.[yr] || {}
-  const color = ent?.accent || ACCENT
+const TblHead = ({visMonths,monthTypes,totalLabel,stickyBg}) => {
+  const bg = stickyBg||"#0c1420";
+  return (
+    <thead>
+      <tr style={{borderBottom:"1px solid #0f1e30"}}>
+        <th style={{textAlign:"left",padding:"10px 20px",color:SLATE,fontWeight:500,minWidth:190,position:"sticky",left:0,background:bg,zIndex:2}}>Line Item</th>
+        {visMonths.map((m,i) => (
+          <th key={i} colSpan={2} style={{padding:"8px 10px",fontWeight:500,fontSize:10,textAlign:"center",color:monthTypes[i]==="ACT"?"#93c5fd":"#fcd34d",whiteSpace:"nowrap",minWidth:110}}>{m}</th>
+        ))}
+        <th colSpan={3} style={{padding:"8px 10px",fontWeight:600,fontSize:10,textAlign:"center",color:"#94a3b8",minWidth:130}}>{totalLabel||"Total"}</th>
+      </tr>
+      <tr style={{borderBottom:"1px solid #1e2d45",background:"#070c17"}}>
+        <th style={{position:"sticky",left:0,background:"#070c17",zIndex:2}}></th>
+        {visMonths.map((_,i) => [
+          <th key={"a"+i} style={{padding:"4px 8px",fontSize:9,fontWeight:600,textAlign:"right",color:BLUE,background:"#060d1a",letterSpacing:"0.05em"}}>ACT</th>,
+          <th key={"c"+i} style={{padding:"4px 8px",fontSize:9,fontWeight:600,textAlign:"right",color:AMBER,background:"#0d0a00",letterSpacing:"0.05em"}}>BUD</th>,
+        ])}
+        {["ACT","BUD","VAR"].map(h => (
+          <th key={h} style={{padding:"4px 8px",fontSize:9,fontWeight:600,textAlign:"right",color:h==="ACT"?BLUE:h==="BUD"?AMBER:RED,letterSpacing:"0.05em"}}>{h}</th>
+        ))}
+      </tr>
+    </thead>
+  );
+};
 
-  const tRev  = sum(d.revenue)
-  const tMat  = sum(d.materials)
-  const tEmp  = sum(d.employee_cost)
-  const tEB   = sum(d.ebitda)
-  const tEBIT = sum(d.ebit)
-  const tNet  = sum(d.profit_loss)
-  const grossPct = tRev !== 0 ? (tRev + tMat) / tRev : 0
-  const netPct   = tRev !== 0 ? tNet / tRev : 0
+const TblRow = ({label,actArr,compArr,color,bold,indent,s,e}) => {
+  const aSlice = sl(actArr,s,e);
+  const cSlice = compArr?sl(compArr,s,e):null;
+  const totA   = sum(aSlice);
+  const totC   = cSlice?sum(cSlice):null;
+  const totV   = totC!==null?totA-totC:null;
+  return (
+    <tr className="tbl-row" style={{borderBottom:"1px solid #080f1a"}}>
+      <td style={{padding:"7px 20px",color,fontWeight:bold?600:400,fontSize:bold?12:11,paddingLeft:indent?32:20,position:"sticky",left:0,background:"#0c1420",zIndex:1}}>{label}</td>
+      {aSlice.map((av,i) => {
+        const cv = cSlice?cSlice[i]:null;
+        return [
+          <td key={"a"+i} style={{padding:"7px 8px",textAlign:"right",color,fontWeight:bold?600:400,fontSize:11,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{fmt(av)}</td>,
+          <td key={"c"+i} style={{padding:"7px 8px",textAlign:"right",color:cv!==null?AMBER:SLATE,fontSize:11,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{cv!==null?fmt(cv):"—"}</td>,
+        ];
+      })}
+      <td style={{padding:"7px 8px",textAlign:"right",color,fontWeight:700,fontSize:11,fontFamily:"'DM Mono',monospace",borderLeft:"1px solid #0f1e30",whiteSpace:"nowrap"}}>{fmt(totA)}</td>
+      <td style={{padding:"7px 8px",textAlign:"right",color:AMBER,fontSize:11,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{totC!==null?fmt(totC):"—"}</td>
+      <td style={{padding:"7px 8px",textAlign:"right",color:totV!==null?vc(totV):SLATE,fontSize:11,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{totV!==null?fmt(totV):"—"}</td>
+    </tr>
+  );
+};
 
-  const prevD   = SEED[entityKey]?.[yr-1] || {}
-  const prevRev = sum(prevD.revenue||[])
-  const revGrowth = prevRev !== 0 ? ((tRev - prevRev) / Math.abs(prevRev)) * 100 : null
+const PeriodBar = ({startM,endM,setStart,setEnd,compLabel,actLast}) => (
+  <div style={{borderBottom:"1px solid #0c1829",background:"#060a14",padding:"10px 32px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:10,color:"#2d3f58",fontFamily:"'DM Mono',monospace"}}>From</span>
+      <select className="psel" value={startM} onChange={e=>{const v=+e.target.value;setStart(v);if(v>endM)setEnd(v);}}>
+        {MONTHS.map((m,i) => <option key={m} value={i}>{m}</option>)}
+      </select>
+      <span style={{fontSize:10,color:"#2d3f58",fontFamily:"'DM Mono',monospace"}}>To</span>
+      <select className="psel" value={endM} onChange={e=>{const v=+e.target.value;setEnd(v);if(v<startM)setStart(v);}}>
+        {MONTHS.map((m,i) => <option key={m} value={i}>{m}</option>)}
+      </select>
+    </div>
+    <div style={{display:"flex",gap:3,flex:1,flexWrap:"wrap"}}>
+      {MONTHS.map((m,i) => {
+        const inRange=i>=startM&&i<=endM;
+        const isEdge=i===startM||i===endM;
+        const isAct=i<=actLast;
+        let cls="mpill";
+        if(inRange&&!isEdge) cls+=" in-range";
+        if(isEdge) cls+=isAct?" is-edge-act":" is-edge-comp";
+        return (
+          <button key={m} className={cls} onClick={()=>{
+            if(i<startM) setStart(i);
+            else if(i>endM) setEnd(i);
+            else if(i===startM&&i<endM) setStart(i+1);
+            else if(i===endM&&i>startM) setEnd(i-1);
+            else{setStart(i);setEnd(i);}
+          }}>
+            <span style={{fontSize:10,lineHeight:1,color:isEdge?(isAct?"#93c5fd":"#fcd34d"):(inRange?"#94a3b8":"#334155")}}>{m}</span>
+            <span style={{fontSize:8,lineHeight:1,fontWeight:700,color:isAct?BLUE:AMBER}}>{isAct?"ACT":compLabel}</span>
+          </button>
+        );
+      })}
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:12,fontSize:10,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>
+      <span><span style={{color:BLUE}}>●</span><span style={{color:SLATE}}> ACT</span></span>
+      <span><span style={{color:AMBER}}>●</span><span style={{color:SLATE}}> {compLabel}</span></span>
+      <span style={{color:"#334155",paddingLeft:10,borderLeft:"1px solid #0f1e30"}}>{MONTHS[startM]} – {MONTHS[endM]}</span>
+    </div>
+  </div>
+);
 
-  const chartData = MONTHS.map((m,i) => ({
-    month:m,
-    Revenue:       (d.revenue||[])[i]||0,
-    EBITDA:        (d.ebitda||[])[i]||0,
-    EBIT:          (d.ebit||[])[i]||0,
-    'Net Profit':  (d.profit_loss||[])[i]||0,
-  }))
+function AiAssistant({financialContext}) {
+  const [open,     setOpen]     = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input,    setInput]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [booted,   setBooted]   = useState(false);
+  const [unread,   setUnread]   = useState(0);
+  const bottomRef = useRef();
+  const inputRef  = useRef();
+
+  const SYSTEM = `You are EBITDA-9000, a razor-sharp AI financial advisor embedded in a board-level dashboard called Targetflow. You have a dry sense of humour but always back it up with precise numbers. You have full access to the company's current financial data below. Flag anomalies, identify trends, suggest actions, answer questions. Be direct — board members don't need hand-holding. Use €K/€M notation, percentages, and month names. Keep responses under 200 words unless asked for detail. Occasionally make a light finance pun but never at the expense of accuracy.
+
+Current financial data (${financialContext.period}, ${financialContext.year}):
+- Revenue: ${financialContext.revenue} | vs budget: ${financialContext.revVar}
+- Gross margin: ${financialContext.gmPct}% | EBIT margin: ${financialContext.emPct}%
+- EBITDA: ${financialContext.ebitda} | Net profit: ${financialContext.netProfit}
+- Equity: ${financialContext.equity} | Equity ratio: ${financialContext.eqR}%
+- Gearing: ${financialContext.gear}% | Interest coverage: ${financialContext.intCov}x
+- DSO: ${financialContext.dso} days | Cash: ${financialContext.cash}
+- Budget mode: ${financialContext.compLabel}
+- Last confirmed actuals through: ${financialContext.actLastMonth}`;
+
+  const scrollBottom = () => setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),50);
+
+  const boot = async () => {
+    if(booted) return;
+    setBooted(true);
+    setLoading(true);
+    const bootMsg = "Give me a brief financial health summary for this period. Lead with the single most important thing the board should know right now, then flag up to 2 anomalies or risks. Be specific with numbers.";
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system:SYSTEM,
+          messages:[{role:"user",content:bootMsg}]
+        })
+      });
+      const data = await res.json();
+      const text = data.content?.find(b=>b.type==="text")?.text || "Unable to generate summary.";
+      setMessages([{role:"assistant",content:text,auto:true}]);
+      if(!open) setUnread(1);
+    } catch(e) {
+      setMessages([{role:"assistant",content:"Could not connect to AI. Check your API configuration.",auto:true,err:true}]);
+    }
+    setLoading(false);
+    scrollBottom();
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if(!text || loading) return;
+    setInput("");
+    const newMessages = [...messages, {role:"user",content:text}];
+    setMessages(newMessages);
+    setLoading(true);
+    scrollBottom();
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system:SYSTEM,
+          messages:newMessages.map(m=>({role:m.role,content:m.content}))
+        })
+      });
+      const data = await res.json();
+      const reply = data.content?.find(b=>b.type==="text")?.text || "No response.";
+      setMessages(prev=>[...prev,{role:"assistant",content:reply}]);
+    } catch(e) {
+      setMessages(prev=>[...prev,{role:"assistant",content:"Error contacting AI.",err:true}]);
+    }
+    setLoading(false);
+    scrollBottom();
+  };
+
+  const handleOpen = () => {
+    setOpen(true);
+    setUnread(0);
+    if(!booted) boot();
+    setTimeout(()=>inputRef.current?.focus(),100);
+    scrollBottom();
+  };
+
+  const PROMPTS = [
+    "What's our biggest risk right now?",
+    "Compare revenue vs budget",
+    "Is our cash position healthy?",
+    "What should the board prioritise?",
+    "Explain the gearing ratio",
+    "Flag any margin concerns",
+  ];
 
   return (
-    <div>
-      <div style={{display:'flex',gap:8,marginBottom:20,alignItems:'center',flexWrap:'wrap'}}>
-        <YBtn year={2024} active={yr===2024} onClick={()=>setYr(2024)}/>
-        <YBtn year={2025} active={yr===2025} onClick={()=>setYr(2025)}/>
-        <YBtn year={2026} label="2026 BUD" active={yr===2026} onClick={()=>setYr(2026)}/>
-        {revGrowth !== null && (
-          <span style={{fontSize:11,color:revGrowth>=0?'#34d399':'#f87171',marginLeft:4}}>
-            {revGrowth>=0?'▲':'▼'} {Math.abs(revGrowth).toFixed(1)}% vs {yr-1}
-          </span>
+    <>
+      {/* Floating button */}
+      <div style={{position:"fixed",bottom:28,right:28,zIndex:1000}}>
+        {!open && (
+          <button onClick={handleOpen} style={{width:52,height:52,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#0ea5e9)",border:"none",cursor:"pointer",boxShadow:"0 4px 20px #1d4ed855",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",transition:"transform 0.2s"}}
+            onMouseEnter={e=>e.currentTarget.style.transform="scale(1.08)"}
+            onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+            <span style={{fontSize:22}}>✦</span>
+            {unread>0 && (
+              <div style={{position:"absolute",top:0,right:0,width:16,height:16,borderRadius:"50%",background:RED,border:"2px solid #080b12",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",fontFamily:"'DM Mono',monospace"}}>
+                {unread}
+              </div>
+            )}
+          </button>
         )}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:22}}>
-        <KPI label="Revenue"    value={fmt(tRev,true)}    color={color}/>
-        <KPI label="Gross %"    value={pct(grossPct)}     color={vc(grossPct)}/>
-        <KPI label="EBITDA"     value={fmt(tEB,true)}     color={vc(tEB)}/>
-        <KPI label="EBIT"       value={fmt(tEBIT,true)}   color={vc(tEBIT)}/>
-        <KPI label="Net Profit" value={fmt(tNet,true)}    color={vc(tNet)} sub={pct(netPct)+' margin'}/>
+      {/* Chat panel */}
+      {open && (
+        <div style={{position:"fixed",bottom:28,right:28,zIndex:1000,width:400,height:580,display:"flex",flexDirection:"column",background:"#080e1c",border:"1px solid #1e3a5f",borderRadius:16,boxShadow:"0 16px 60px #000a",overflow:"hidden"}}>
+
+          {/* Header */}
+          <div style={{padding:"14px 18px",borderBottom:"1px solid #0f1e30",display:"flex",alignItems:"center",justifyContent:"space-between",background:"linear-gradient(135deg,#0a1628,#060e1e)",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:30,height:30,borderRadius:"50%",background:"linear-gradient(135deg,#1d4ed8,#0ea5e9)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontFamily:"'DM Mono',monospace",fontWeight:700,color:"#fff",letterSpacing:"-0.5px"}}>E9K</div>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0"}}>EBITDA-9000</div>
+                <div style={{fontSize:9,color:loading?AMBER:GREEN,fontFamily:"'DM Mono',monospace"}}>{loading?"Crunching numbers…":"● Online"}</div>
+              </div>
+            </div>
+            <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",color:SLATE,fontSize:18,cursor:"pointer",lineHeight:1,padding:"2px 6px"}}>✕</button>
+          </div>
+
+          {/* Messages */}
+          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+            {messages.length===0 && loading && (
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"#0c1420",borderRadius:12,border:"1px solid #0f1e30"}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:BLUE,animation:"pulse 1s infinite"}}/>
+                <span style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace"}}>EBITDA-9000 is initialising… please hold.</span>
+              </div>
+            )}
+            {messages.map((m,i) => (
+              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",gap:4}}>
+                {m.auto && (
+                  <div style={{fontSize:9,color:BLUE,fontFamily:"'DM Mono',monospace",paddingLeft:2}}>✦ Auto-summary on load</div>
+                )}
+                <div style={{maxWidth:"88%",padding:"10px 14px",borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",
+                  background:m.role==="user"?"#1e3a5f":m.err?"#1a0a0a":"#0c1420",
+                  border:"1px solid "+(m.role==="user"?"#3b82f655":m.err?"#f8717133":"#1e2d45"),
+                  fontSize:12,color:m.err?RED:"#d1d5db",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {loading && messages.length>0 && (
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"#0c1420",borderRadius:"12px 12px 12px 2px",border:"1px solid #1e2d45",maxWidth:"60%"}}>
+                <div style={{display:"flex",gap:3}}>
+                  {[0,1,2].map(n=><div key={n} style={{width:5,height:5,borderRadius:"50%",background:BLUE,opacity:0.4+n*0.3}}/>)}
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef}/>
+          </div>
+
+          {/* Quick prompts */}
+          {messages.length<2 && !loading && (
+            <div style={{padding:"0 12px 8px",display:"flex",gap:6,flexWrap:"wrap",flexShrink:0}}>
+              {PROMPTS.map(p=>(
+                <button key={p} onClick={()=>{setInput(p);setTimeout(()=>inputRef.current?.focus(),50);}}
+                  style={{padding:"4px 10px",borderRadius:20,background:"#0c1420",border:"1px solid #1e2d45",color:SLATE,fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer",whiteSpace:"nowrap",transition:"all 0.15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#3b82f6";e.currentTarget.style.color="#93c5fd";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e2d45";e.currentTarget.style.color=SLATE;}}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{padding:"10px 12px",borderTop:"1px solid #0f1e30",display:"flex",gap:8,flexShrink:0,background:"#060a14"}}>
+            <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+              placeholder="Ask EBITDA-9000…"
+              style={{flex:1,background:"#0c1420",border:"1px solid #1e2d45",borderRadius:9,padding:"8px 12px",color:"#e2e8f0",fontSize:12,outline:"none",fontFamily:"'DM Sans',sans-serif"}}
+              onFocus={e=>e.target.style.borderColor="#3b82f6"}
+              onBlur={e=>e.target.style.borderColor="#1e2d45"}
+            />
+            <button onClick={send} disabled={!input.trim()||loading}
+              style={{width:36,height:36,borderRadius:9,background:input.trim()&&!loading?"#1d4ed8":"#0c1420",border:"1px solid "+(input.trim()&&!loading?"#3b82f6":"#1e2d45"),cursor:input.trim()&&!loading?"pointer":"not-allowed",color:input.trim()&&!loading?"#fff":SLATE,fontSize:16,transition:"all 0.15s",flexShrink:0}}>
+              ↑
+            </button>
+          </div>
+
+        </div>
+      )}
+    </>
+  );
+}
+
+function ApiSyncPanel({year, actLast, setActLast}) {
+  const [source,    setSource]    = useState("procountor");
+  const [syncFrom,  setSyncFrom]  = useState(0);
+  const [syncTo,    setSyncTo]    = useState(actLast);
+  const [scope,     setScope]     = useState(["pl","balance"]);
+  const [status,    setStatus]    = useState(null); // null | "running" | "done" | "error"
+  const [log,       setLog]       = useState([]);
+  const [lastSync,  setLastSync]  = useState(null);
+
+  const toggleScope = (s) => setScope(prev => prev.includes(s) ? prev.filter(x=>x!==s) : [...prev,s]);
+
+  const SOURCES = [
+    {id:"procountor", label:"Procountor", color:"#6366f1", icon:"🔗", note:"REST API · OAuth2"},
+    {id:"netvisor",   label:"Netvisor",   color:"#0ea5e9", icon:"🔗", note:"SOAP/REST API"},
+    {id:"csv",        label:"Manual CSV", color:SLATE,     icon:"📂", note:"Upload file below"},
+  ];
+
+  const SCOPE_OPTS = [
+    {id:"pl",      label:"P&L",           sub:"Income statement"},
+    {id:"balance", label:"Balance Sheet", sub:"Assets & liabilities"},
+  ];
+
+  const runSync = () => {
+    if(source==="csv") return;
+    setStatus("running");
+    setLog([]);
+    const steps = [
+      {delay:400,  msg:"🔐 Authenticating with "+SOURCES.find(s=>s.id===source).label+"…"},
+      {delay:900,  msg:"📡 Fetching "+scope.map(s=>SCOPE_OPTS.find(o=>o.id===s).label).join(" + ")+" for "+MONTHS[syncFrom]+"–"+MONTHS[syncTo]+" "+year+"…"},
+      {delay:1600, msg:"🔄 Mapping "+source==="procountor"?"Procountor":"Netvisor"+" chart of accounts…"},
+      {delay:2200, msg:"✅ P&L: "+(syncTo-syncFrom+1)+" months imported"},
+      scope.includes("balance") ? {delay:2700, msg:"✅ Balance Sheet: "+(syncTo-syncFrom+1)+" end-of-month snapshots imported"} : null,
+      {delay:3100, msg:"💾 Writing to Supabase (dashboard_pnl)…"},
+      {delay:3600, msg:"✓ Sync complete · "+( (syncTo-syncFrom+1)*( scope.length===2?26:13 ) )+" rows upserted"},
+    ].filter(Boolean);
+    steps.forEach(({delay,msg}) => {
+      setTimeout(() => setLog(prev=>[...prev, msg]), delay);
+    });
+    setTimeout(() => {
+      setStatus("done");
+      setActLast(syncTo);
+      setLastSync(new Date().toLocaleString("fi-FI"));
+    }, 3800);
+  };
+
+  const srcObj = SOURCES.find(s=>s.id===source);
+
+  return (
+    <div style={{background:"#0a0e1a",border:"1px solid #1e2d45",borderRadius:14,overflow:"hidden"}}>
+
+      {/* Header */}
+      <div style={{padding:"16px 22px",borderBottom:"1px solid #0f1e30",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:700,color:"#e2e8f0",marginBottom:2}}>↻ Refresh Actuals from Source</div>
+          <div style={{fontSize:11,color:SLATE}}>Pull P&L and Balance Sheet data directly from your accounting system and overwrite the selected period</div>
+        </div>
+        {lastSync && (
+          <div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:SLATE,background:"#060a14",border:"1px solid #0f1e30",borderRadius:7,padding:"5px 12px",whiteSpace:"nowrap"}}>
+            Last sync: {lastSync}
+          </div>
+        )}
       </div>
 
-      <ST>Monthly Revenue & Profitability — {yr}{yr===2026?' (BUD)':' (ACT)'}</ST>
-      <div style={{height:230,marginBottom:22}}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{top:0,right:0,left:0,bottom:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-            <XAxis dataKey="month" tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <YAxis tickFormatter={v=>fmt(v,true)} tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <Tooltip content={<TT/>}/>
-            <Legend wrapperStyle={{fontSize:11,color:'#475569'}}/>
-            <Bar dataKey="Revenue" fill={color} opacity={0.7} radius={[2,2,0,0]}/>
-            <Line type="monotone" dataKey="EBITDA"    stroke="#f59e0b" strokeWidth={2} dot={false}/>
-            <Line type="monotone" dataKey="EBIT"      stroke="#34d399" strokeWidth={2} dot={false}/>
-            <Line type="monotone" dataKey="Net Profit" stroke="#f87171" strokeWidth={2} dot={false} strokeDasharray="4 3"/>
-            <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)"/>
-          </ComposedChart>
-        </ResponsiveContainer>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+
+        {/* LEFT: config */}
+        <div style={{padding:"20px 22px",borderRight:"1px solid #0f1e30",display:"flex",flexDirection:"column",gap:20}}>
+
+          {/* Source selector */}
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>1 · Source</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {SOURCES.map(src => (
+                <button key={src.id} onClick={()=>{setSource(src.id);setStatus(null);setLog([]);}}
+                  style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:9,cursor:"pointer",textAlign:"left",
+                    border:"1px solid "+(source===src.id?src.color+"66":"#1e2d45"),
+                    background:source===src.id?src.color+"12":"transparent"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:source===src.id?src.color:"#1e2d45",flexShrink:0}}/>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600,color:source===src.id?"#e2e8f0":"#64748b"}}>{src.label}</div>
+                      <div style={{fontSize:9,color:"#334155",fontFamily:"'DM Mono',monospace",marginTop:1}}>{src.note}</div>
+                    </div>
+                  </div>
+                  {source===src.id && <div style={{fontSize:9,color:src.color,fontFamily:"'DM Mono',monospace",fontWeight:700}}>SELECTED</div>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Period */}
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>2 · Period to overwrite</div>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:9,color:"#334155",fontFamily:"'DM Mono',monospace",marginBottom:5}}>FROM</div>
+                <select className="psel" style={{width:"100%"}} value={syncFrom} onChange={e=>setSyncFrom(+e.target.value)}>
+                  {MONTHS.map((m,i)=><option key={m} value={i}>{m} {year}</option>)}
+                </select>
+              </div>
+              <div style={{color:"#1e2d45",paddingTop:18}}>→</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:9,color:"#334155",fontFamily:"'DM Mono',monospace",marginBottom:5}}>TO</div>
+                <select className="psel" style={{width:"100%"}} value={syncTo} onChange={e=>setSyncTo(+e.target.value)}>
+                  {MONTHS.map((m,i)=><option key={m} value={i} disabled={i<syncFrom}>{m} {year}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+              {MONTHS.map((m,i) => {
+                const inRange=i>=syncFrom&&i<=syncTo;
+                return (
+                  <div key={m} onClick={()=>{if(i<syncFrom)setSyncFrom(i);else if(i>syncTo)setSyncTo(i);}}
+                    style={{padding:"3px 7px",borderRadius:5,fontSize:9,fontFamily:"'DM Mono',monospace",cursor:"pointer",
+                      background:inRange?"#1e3a5f":"transparent",
+                      color:inRange?"#93c5fd":"#334155",
+                      border:"1px solid "+(inRange?"#3b82f6":"#0f1e30")}}>
+                    {m}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{marginTop:8,fontSize:9,color:"#334155",fontFamily:"'DM Mono',monospace"}}>
+              ⚠ Overwrites {syncTo-syncFrom+1} month{syncTo-syncFrom>0?"s":""} completely — existing data for this period will be replaced
+            </div>
+          </div>
+
+          {/* Scope */}
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>3 · Data to pull</div>
+            <div style={{display:"flex",gap:8}}>
+              {SCOPE_OPTS.map(opt => (
+                <button key={opt.id} onClick={()=>toggleScope(opt.id)}
+                  style={{flex:1,padding:"10px 12px",borderRadius:9,cursor:"pointer",textAlign:"left",
+                    border:"1px solid "+(scope.includes(opt.id)?"#3b82f6":"#1e2d45"),
+                    background:scope.includes(opt.id)?"#0d1e35":"transparent"}}>
+                  <div style={{fontSize:11,fontWeight:600,color:scope.includes(opt.id)?"#60a5fa":"#64748b",marginBottom:2}}>{opt.label}</div>
+                  <div style={{fontSize:9,color:"#334155",fontFamily:"'DM Mono',monospace"}}>{opt.sub}</div>
+                </button>
+              ))}
+            </div>
+            {scope.length===0 && <div style={{fontSize:10,color:RED,fontFamily:"'DM Mono',monospace",marginTop:6}}>Select at least one</div>}
+          </div>
+
+          {/* Run button */}
+          {source!=="csv" && (
+            <button
+              onClick={runSync}
+              disabled={status==="running"||scope.length===0}
+              style={{padding:"12px 20px",borderRadius:10,fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700,cursor:status==="running"||scope.length===0?"not-allowed":"pointer",
+                border:"1px solid "+(status==="running"?"#1e3a5f":status==="done"?GREEN+"88":"#3b82f6"),
+                background:status==="running"?"#0a1525":status==="done"?GREEN+"15":"#0d1e35",
+                color:status==="running"?SLATE:status==="done"?GREEN:"#60a5fa",
+                transition:"all 0.2s"}}>
+              {status==="running"?"⟳ Syncing…":status==="done"?"✓ Sync complete":"↻ Run Sync Now"}
+            </button>
+          )}
+          {source==="csv" && (
+            <div style={{padding:"10px 14px",borderRadius:9,background:"#070c17",border:"1px solid #0f1e30",fontSize:11,color:SLATE}}>
+              👇 Use the Manual CSV panel below to import data
+            </div>
+          )}
+
+        </div>
+
+        {/* RIGHT: log / preview */}
+        <div style={{padding:"20px 22px",display:"flex",flexDirection:"column",gap:14}}>
+
+          {/* Connection status */}
+          <div>
+            <div style={{fontSize:10,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Connection</div>
+            {source==="csv" ? (
+              <div style={{padding:"12px 16px",borderRadius:9,background:"#070c17",border:"1px solid #0f1e30",fontSize:11,color:SLATE}}>No API connection needed for manual CSV</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#070c17",borderRadius:9,border:"1px solid #0f1e30"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:AMBER}}/>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>API Environment</span>
+                  </div>
+                  <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:AMBER}}>Not configured</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#070c17",borderRadius:9,border:"1px solid #0f1e30"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:AMBER}}/>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>API Key</span>
+                  </div>
+                  <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:AMBER}}>Targetflow Dashboard key needed</span>
+                </div>
+                <div style={{fontSize:9,color:"#1e2d45",fontFamily:"'DM Mono',monospace",lineHeight:1.6}}>
+                  To connect: create an API key called "Targetflow Dashboard" in your {source==="procountor"?"Procountor":"Netvisor"} settings, then set it in the dashboard config. See setup guide →
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sync log */}
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,fontWeight:600,color:SLATE,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Sync Log</div>
+            <div style={{background:"#040710",border:"1px solid #0c1829",borderRadius:9,padding:"12px 14px",minHeight:160,fontFamily:"'DM Mono',monospace",fontSize:11}}>
+              {log.length===0 && status===null && (
+                <div style={{color:"#1e2d45"}}>Run sync to see output here…</div>
+              )}
+              {log.map((line,i) => (
+                <div key={i} style={{color:line.startsWith("✓")||line.startsWith("✅")?GREEN:line.startsWith("⚠")?AMBER:line.startsWith("🔐")||line.startsWith("📡")||line.startsWith("🔄")||line.startsWith("💾")?"#94a3b8":"#e2e8f0",marginBottom:4,lineHeight:1.5}}>
+                  {line}
+                </div>
+              ))}
+              {status==="running" && (
+                <div style={{color:BLUE,marginTop:4}}>▌</div>
+              )}
+              {status==="done" && (
+                <div style={{marginTop:10,padding:"8px 12px",background:GREEN+"10",border:"1px solid "+GREEN+"33",borderRadius:7}}>
+                  <div style={{color:GREEN,fontWeight:700,marginBottom:2}}>Sync complete</div>
+                  <div style={{color:SLATE,fontSize:10}}>ACT confirmed through {MONTHS[syncTo]} {year} · dashboard updated</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Preview of what will be overwritten */}
+          {status===null && source!=="csv" && (
+            <div style={{background:"#070c17",border:"1px solid #0f1e30",borderRadius:9,padding:"12px 14px"}}>
+              <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:8}}>WHAT WILL BE OVERWRITTEN</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {scope.map(s => {
+                  const opt=SCOPE_OPTS.find(o=>o.id===s);
+                  return (
+                    <div key={s} style={{display:"flex",alignItems:"center",gap:8,fontSize:10,fontFamily:"'DM Mono',monospace",color:"#94a3b8"}}>
+                      <div style={{width:4,height:4,borderRadius:"50%",background:BLUE}}/>
+                      {opt.label}: {MONTHS[syncFrom]}–{MONTHS[syncTo]} {year} ({syncTo-syncFrom+1} months)
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroupStructureTab({entities,selectedEnt,setSelectedEnt,editingEnt,setEditingEnt,isGroup,addEntity,updateEntity,removeEntity}) {
+  const NODE_W=168,NODE_H=72,H_GAP=24,V_GAP=80;
+  const levels={};
+  const q=entities.filter(e=>!e.parentId).map(r=>({id:r.id,level:0}));
+  const queue=[...q];
+  while(queue.length){
+    const {id,level}=queue.shift();
+    levels[id]=level;
+    entities.filter(e=>e.parentId===id).forEach(c=>queue.push({id:c.id,level:level+1}));
+  }
+  const byLevel={};
+  Object.entries(levels).forEach(([id,l])=>{if(!byLevel[l])byLevel[l]=[];byLevel[l].push(id);});
+  const positions={};
+  Object.entries(byLevel).forEach(([level,ids])=>{
+    const totalW=ids.length*(NODE_W+H_GAP)-H_GAP;
+    ids.forEach((id,i)=>{positions[id]={x:i*(NODE_W+H_GAP)-totalW/2+NODE_W/2,y:+level*(NODE_H+V_GAP)};});
+  });
+  const maxLevel=Math.max(0,...Object.values(levels));
+  const allX=Object.values(positions).map(p=>p.x);
+  const minX=allX.length?Math.min(...allX)-NODE_W/2-20:-300;
+  const maxX=allX.length?Math.max(...allX)+NODE_W/2+20:300;
+  const svgW=Math.max(600,maxX-minX);
+  const svgH=Math.max(180,(maxLevel+1)*(NODE_H+V_GAP)+60);
+  const ox=svgW/2;
+  const edges=entities.filter(e=>e.parentId&&positions[e.parentId]&&positions[e.id]).map(e=>{
+    const p=positions[e.parentId];const c=positions[e.id];
+    return {fx:ox+p.x,fy:p.y+NODE_H,tx:ox+c.x,ty:c.y,ownership:e.ownership,color:e.color};
+  });
+  const sel=entities.find(e=>e.id===selectedEnt);
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginRight:4}}>Group Structure</span>
+        <button onClick={()=>addEntity("subsidiary")} style={{padding:"7px 14px",background:"#0c1420",border:"1px solid #1e3a5f",borderRadius:8,color:"#60a5fa",fontFamily:"'DM Mono',monospace",fontSize:11,cursor:"pointer",fontWeight:600}}>+ Add Subsidiary</button>
+        <button onClick={()=>addEntity("parent")} style={{padding:"7px 14px",background:"#0c1420",border:"1px solid #1e2d45",borderRadius:8,color:SLATE,fontFamily:"'DM Mono',monospace",fontSize:11,cursor:"pointer"}}>+ Add Parent</button>
+        {isGroup
+          ? <span style={{fontSize:10,color:GREEN,fontFamily:"'DM Mono',monospace",background:"#0c1420",border:"1px solid #0f1e30",borderRadius:6,padding:"5px 12px"}}>{entities.length} entities · use entity selector in other tabs</span>
+          : <span style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",background:"#0c1420",border:"1px solid #0f1e30",borderRadius:6,padding:"5px 12px"}}>Single entity — add subsidiaries to build group structure</span>}
       </div>
 
-      <ST>Year-on-Year Revenue Comparison</ST>
-      <div style={{height:180,marginBottom:22}}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={MONTHS.map((m,i) => ({
-            month:m,
-            '2024 ACT': (SEED[entityKey]?.[2024]?.revenue||[])[i]||0,
-            '2025 ACT': (SEED[entityKey]?.[2025]?.revenue||[])[i]||0,
-            '2026 BUD': (SEED[entityKey]?.[2026]?.revenue||[])[i]||0,
-          }))} margin={{top:0,right:0,left:0,bottom:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-            <XAxis dataKey="month" tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <YAxis tickFormatter={v=>fmt(v,true)} tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <Tooltip content={<TT/>}/>
-            <Legend wrapperStyle={{fontSize:11,color:'#475569'}}/>
-            <Line type="monotone" dataKey="2024 ACT" stroke="#475569" strokeWidth={2} dot={false} strokeDasharray="4 3"/>
-            <Line type="monotone" dataKey="2025 ACT" stroke="#64748b" strokeWidth={2} dot={false}/>
-            <Line type="monotone" dataKey="2026 BUD" stroke={color}   strokeWidth={2} dot={false}/>
-          </LineChart>
-        </ResponsiveContainer>
+      <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"auto"}}>
+        <svg width="100%" viewBox={"0 0 "+svgW+" "+svgH} style={{minHeight:Math.max(160,svgH),display:"block"}}>
+          <defs>
+            <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#1e3a5f"/>
+            </marker>
+          </defs>
+          {edges.map((edge,i) => {
+            const mx=(edge.fx+edge.tx)/2,my=(edge.fy+edge.ty)/2;
+            const d="M "+edge.fx+" "+edge.fy+" C "+edge.fx+" "+(edge.fy+30)+", "+edge.tx+" "+(edge.ty-30)+", "+edge.tx+" "+edge.ty;
+            return (
+              <g key={i}>
+                <path d={d} fill="none" stroke="#1e3a5f" strokeWidth="2" markerEnd="url(#arr)"/>
+                <rect x={mx-18} y={my-10} width={36} height={18} rx={9} fill="#0a1525" stroke={edge.color} strokeWidth="1"/>
+                <text x={mx} y={my+4} textAnchor="middle" style={{fontSize:9,fontFamily:"'DM Mono',monospace",fill:edge.color,fontWeight:700}}>{edge.ownership}%</text>
+              </g>
+            );
+          })}
+          {entities.map(ent => {
+            if(!positions[ent.id]) return null;
+            const p=positions[ent.id],nx=ox+p.x-NODE_W/2,ny=p.y,isSel=selectedEnt===ent.id;
+            return (
+              <g key={ent.id} style={{cursor:"pointer"}} onClick={()=>{setSelectedEnt(ent.id);setEditingEnt(null);}}>
+                <rect x={nx} y={ny} width={NODE_W} height={NODE_H} rx={10} fill={isSel?"#0f2540":"#0c1420"} stroke={isSel?ent.color:"#1e2d45"} strokeWidth={isSel?2:1}/>
+                <circle cx={nx+NODE_W-16} cy={ny+16} r={5} fill={ent.color}/>
+                <text x={nx+10} y={ny+42} style={{fontSize:11,fill:"#e2e8f0",fontWeight:600}}>{ent.name.length>20?ent.name.slice(0,19)+"…":ent.name}</text>
+                {ent.parentId
+                  ? <text x={nx+10} y={ny+58} style={{fontSize:9,fontFamily:"'DM Mono',monospace",fill:SLATE}}>{ent.ownership}% owned</text>
+                  : <text x={nx+10} y={ny+58} style={{fontSize:9,fontFamily:"'DM Mono',monospace",fill:GREEN}}>Ultimate parent</text>}
+              </g>
+            );
+          })}
+        </svg>
       </div>
 
-      <ST>Monthly P&L Table — {yr}</ST>
-      <div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',fontSize:11,fontFamily:'monospace'}}>
-          <thead>
-            <tr style={{borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
-              <th style={{textAlign:'left',padding:'7px 10px',color:'#475569',minWidth:140}}>Line</th>
-              {MONTHS.map(m => <th key={m} style={{textAlign:'right',padding:'7px 5px',color:'#475569',minWidth:58}}>{m}</th>)}
-              <th style={{textAlign:'right',padding:'7px 10px',color:'#475569'}}>TOTAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              {l:'Revenue',      a:d.revenue,      c:'#e2e8f0'},
-              {l:'Materials',    a:d.materials,     c:'#94a3b8'},
-              {l:'Employee',     a:d.employee_cost, c:'#94a3b8'},
-              {l:'EBITDA',       a:d.ebitda,        c:null, b:true},
-              {l:'Depreciation', a:d.dep_tangible,  c:'#64748b'},
-              {l:'EBIT',         a:d.ebit,          c:null, b:true},
-              {l:'Net Profit',   a:d.profit_loss,   c:null, b:true},
-            ].map(({l,a,c,b}) => {
-              const tot = sum(a||[])
-              const isDyn = c === null
-              return (
-                <tr key={l} style={{borderBottom:'1px solid rgba(255,255,255,0.03)',background:b?'rgba(255,255,255,0.02)':'transparent'}}>
-                  <td style={{padding:'5px 10px',color:isDyn?vc(tot):c,fontWeight:b?700:400}}>{l}</td>
-                  {(a||[]).map((v,i) => (
-                    <td key={i} style={{textAlign:'right',padding:'5px 5px',color:isDyn?vc(v):c,fontWeight:b?700:400}}>{v!==0?fmt(v,true):'–'}</td>
+      {sel && (
+        <div style={{background:"#0c1420",border:"1px solid #1e2d45",borderRadius:12,padding:"18px 22px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:12,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:sel.color}}/>
+              <span style={{fontSize:13,fontWeight:600,color:"#e2e8f0"}}>{sel.name}</span>
+              <span style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",background:"#0a1525",border:"1px solid #1e2d45",borderRadius:5,padding:"2px 8px"}}>{sel.type}</span>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setEditingEnt(editingEnt===sel.id?null:sel.id)} style={{padding:"6px 14px",background:editingEnt===sel.id?"#1e3a5f":"none",border:"1px solid #1e3a5f",borderRadius:7,color:"#60a5fa",fontFamily:"'DM Mono',monospace",fontSize:10,cursor:"pointer"}}>
+                {editingEnt===sel.id?"✓ Done":"✏ Edit"}
+              </button>
+              {entities.length>1 && (
+                <button onClick={()=>removeEntity(sel.id)} style={{padding:"6px 14px",background:"none",border:"1px solid #2d1515",borderRadius:7,color:RED,fontFamily:"'DM Mono',monospace",fontSize:10,cursor:"pointer"}}>Remove</button>
+              )}
+            </div>
+          </div>
+          {editingEnt===sel.id ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+              <div>
+                <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:5}}>NAME</div>
+                <input value={sel.name} onChange={e=>updateEntity(sel.id,"name",e.target.value)} style={{width:"100%",background:"#080b12",border:"1px solid #1e3a5f",borderRadius:6,padding:"7px 10px",color:"#e2e8f0",fontSize:12,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:5}}>TYPE</div>
+                <select value={sel.type} onChange={e=>updateEntity(sel.id,"type",e.target.value)} className="psel" style={{width:"100%"}}>
+                  <option value="holding">Holding</option>
+                  <option value="operating">Operating</option>
+                  <option value="dormant">Dormant</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:5}}>PARENT</div>
+                <select value={sel.parentId||""} onChange={e=>updateEntity(sel.id,"parentId",e.target.value||null)} className="psel" style={{width:"100%"}}>
+                  <option value="">— None (top level) —</option>
+                  {entities.filter(e=>e.id!==sel.id).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+              {sel.parentId && (
+                <div>
+                  <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:5}}>OWNERSHIP % <span style={{color:sel.color}}>{sel.ownership}%</span></div>
+                  <input type="range" min={1} max={100} value={sel.ownership} onChange={e=>updateEntity(sel.id,"ownership",+e.target.value)} style={{width:"100%",accentColor:sel.color}}/>
+                </div>
+              )}
+              <div>
+                <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:5}}>COLOR</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[BLUE,GREEN,PURPLE,CYAN,AMBER,RED,"#ec4899","#f97316"].map(c => (
+                    <div key={c} onClick={()=>updateEntity(sel.id,"color",c)} style={{width:20,height:20,borderRadius:"50%",background:c,cursor:"pointer",border:sel.color===c?"2px solid #fff":"2px solid transparent"}}/>
                   ))}
-                  <td style={{textAlign:'right',padding:'5px 10px',color:isDyn?vc(tot):c,fontWeight:700}}>{fmt(tot,true)}</td>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
+              {[
+                {l:"Type",      v:sel.type},
+                {l:"Parent",    v:sel.parentId?(entities.find(e=>e.id===sel.parentId)||{name:"—"}).name:"None"},
+                {l:"Ownership", v:sel.parentId?sel.ownership+"%":"—"},
+                {l:"Subsidiaries",v:entities.filter(e=>e.parentId===sel.id).length},
+              ].map(f => (
+                <div key={f.l}>
+                  <div style={{fontSize:9,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:3,textTransform:"uppercase"}}>{f.l}</div>
+                  <div style={{fontSize:12,color:"#94a3b8",fontFamily:"'DM Mono',monospace"}}>{f.v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isGroup && (
+        <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+          <div style={{padding:"12px 20px",borderBottom:"1px solid #0f1e30"}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#94a3b8"}}>Entity Registry</div>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+              <thead>
+                <tr style={{background:"#070c17",borderBottom:"1px solid #0f1e30"}}>
+                  {["Entity","Type","Parent","Ownership","Subsidiaries"].map((h,i) => (
+                    <th key={i} style={{padding:"8px 16px",textAlign:"left",color:SLATE,fontWeight:500,fontSize:10}}>{h}</th>
+                  ))}
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                {entities.map(ent => {
+                  const parent=entities.find(e=>e.id===ent.parentId);
+                  const subs=entities.filter(e=>e.parentId===ent.id);
+                  return (
+                    <tr key={ent.id} className="tbl-row" style={{borderBottom:"1px solid #080f1a",cursor:"pointer"}} onClick={()=>setSelectedEnt(ent.id)}>
+                      <td style={{padding:"10px 16px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{width:8,height:8,borderRadius:"50%",background:ent.color}}/>
+                          <span style={{color:"#e2e8f0",fontWeight:600}}>{ent.name}</span>
+                        </div>
+                      </td>
+                      <td style={{padding:"10px 16px",color:SLATE}}>{ent.type}</td>
+                      <td style={{padding:"10px 16px",color:SLATE}}>{parent?parent.name:"—"}</td>
+                      <td style={{padding:"10px 16px"}}>{ent.parentId?<span style={{color:ent.color,fontWeight:700}}>{ent.ownership}%</span>:<span style={{color:GREEN}}>Parent</span>}</td>
+                      <td style={{padding:"10px 16px",color:"#94a3b8"}}>{subs.length||"—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
-// ─── BALANCE SHEET VIEW ───────────────────────────────────────────────────────
-function BSView() {
-  const [yr, setYr] = useState(2025)
-  const bs = SEED.group.bs[yr] || {}
-  const tA = bs.total_assets || 0
-  const tE = bs.total_equity || 0
-  const tL = bs.total_liabilities || 0
-  const eqR = tA !== 0 ? tE/tA : 0
+function Dashboard() {
+  const [tab,         setTab]        = useState("group");
+  const [year,        setYear]       = useState("2025");
+  const [mode,        setMode]       = useState("budget");
+  const [csvData,     setCsvData]    = useState(null);
+  const [csvName,     setCsvName]    = useState(null);
+  const [actData,     setActData]    = useState(null);
+  const [actName,     setActName]    = useState(null);
+  const [actLast,     setActLast]    = useState(ACT_LAST_DEFAULT);
+  const [dragOver,    setDragOver]   = useState(false);
+  const [dragOverA,   setDragOverA]  = useState(false);
+  const [startM,      setStartM]     = useState(0);
+  const [endM,        setEndM]       = useState(11);
+  const [entities,    setEntities]   = useState([{id:"e1",name:"Strand Group",type:"operating",parentId:null,ownership:100,color:ACCENT}]);
+  const [selectedEnt, setSelectedEnt]= useState("e1");
+  const [editingEnt,  setEditingEnt] = useState(null);
+  const [activeEntity,setActiveEntity]=useState(null);
+  const fileRef  = useRef();
+  const fileRefA = useRef();
+
+  const addEntity = (type) => {
+    const id="e"+Date.now();
+    const cs=[BLUE,GREEN,PURPLE,CYAN,AMBER,RED,"#ec4899"];
+    const color=cs[entities.length%cs.length];
+    if(type==="parent"){
+      const rootId=entities.find(e=>!e.parentId)||{};
+      setEntities(prev=>[{id,name:"Parent Company",type:"holding",parentId:null,ownership:100,color},...prev.map(e=>e.id===rootId.id?{...e,parentId:id}:e)]);
+    } else {
+      setEntities(prev=>[...prev,{id,name:"New Subsidiary",type:"operating",parentId:entities[0]?entities[0].id:null,ownership:100,color}]);
+    }
+    setSelectedEnt(id);setEditingEnt(id);
+  };
+  const updateEntity=(id,field,value)=>setEntities(prev=>prev.map(e=>e.id===id?{...e,[field]:value}:e));
+  const removeEntity=(id)=>{
+    setEntities(prev=>{
+      const t=prev.find(e=>e.id===id);
+      return prev.filter(e=>e.id!==id).map(e=>e.parentId===id?{...e,parentId:t?t.parentId:null}:e);
+    });
+    if(selectedEnt===id) setSelectedEnt(null);
+  };
+  const isGroup=entities.length>1;
+
+  const _rawAct    = actData||(DATA_BY_YEAR[year]||actBase);
+  const _rawComp   = csvData||(DATA_BY_YEAR[year]||budBase);
+  const Z12 = ()=>[0,0,0,0,0,0,0,0,0,0,0,0];
+  const norm = (d) => ({
+    revenue:     d.revenue     || Z12(),
+    cogs:        d.cogs        || Z12(),
+    opex:        d.opex        || Z12(),
+    ebitda:      d.ebitda      || Z12(),
+    depAmort:    d.depAmort    || Z12(),
+    ebit:        d.ebit        || Z12(),
+    finExpenses: d.finExpenses || Z12(),
+    ebt:         d.ebt         || Z12(),
+    tax:         d.tax         || Z12(),
+    netProfit:   d.netProfit   || Z12(),
+    grossProfit: d.grossProfit || (d.revenue&&d.cogs ? d.revenue.map((v,i)=>v-(d.cogs[i]||0)) : Z12()),
+    inventory:   d.inventory   || Z12(),
+    receivables: d.receivables || Z12(),
+    payables:    d.payables    || Z12(),
+    equity:      d.equity      || Z12(),
+    cash:        d.cash        || Z12(),
+    ltDebt:      d.ltDebt      || Z12(),
+    stDebt:      d.stDebt      || Z12(),
+    otherCL:     d.otherCL     || Z12(),
+    tangibles:   d.tangibles   || Z12(),
+    otherCA:     d.otherCA     || Z12(),
+    wcChange:    d.wcChange    || Z12(),
+    cfOp:        d.cfOp        || d.ebitda || Z12(),
+    cfInv:       d.cfInv       || Z12(),
+    cfFin:       d.cfFin       || Z12(),
+  });
+  const actuals    = norm(_rawAct);
+  const comp       = norm(_rawComp);
+  const compLabel  = mode==="budget"?"BUD":"FC";
+  const S=startM,E=endM;
+  const visMonths  = MONTHS.slice(S,E+1);
+  const monthTypes = visMonths.map((_,ii)=>(S+ii)<=actLast?"ACT":compLabel);
+
+  const totRev  = sum(sl(actuals.revenue,S,E));
+  const totGP   = sum(sl(actuals.grossProfit,S,E));
+  const totEbit = sum(sl(actuals.ebit,S,E));
+  const totNet  = sum(sl(actuals.netProfit,S,E));
+  const totFinX = sum(sl(actuals.finExpenses,S,E));
+  const endEq   = actuals.equity[E]||0;
+  const endDebt = (actuals.ltDebt[E]||0)+(actuals.stDebt[E]||0);
+  const endInv  = actuals.inventory[E]||0;
+  const endRec  = actuals.receivables[E]||0;
+  const endPay  = actuals.payables[E]||0;
+  const nMths   = E-S+1;
+  const annRev  = totRev/nMths*12;
+
+  const gmPct  = totRev?(totGP/totRev*100).toFixed(1):0;
+  const emPct  = totRev?(totEbit/totRev*100).toFixed(1):0;
+  const roePct = endEq?(totNet/endEq*100).toFixed(1):0;
+  const eqR    = (endEq+endDebt)?(endEq/(endEq+endDebt)*100).toFixed(1):0;
+  const gear   = endEq?(endDebt/endEq*100).toFixed(1):0;
+  const intCov = totFinX?(totEbit/totFinX).toFixed(1):0;
+  const dso    = annRev?(endRec/(annRev/365)).toFixed(0):0;
+  const dio    = annRev?(endInv/(annRev/365)).toFixed(0):0;
+  const dpo    = annRev?(endPay/(annRev/365)).toFixed(0):0;
+
+  const marginData=MONTHS.map((m,i)=>({month:m,gross:actuals.revenue[i]?+(actuals.grossProfit[i]/actuals.revenue[i]*100).toFixed(1):0,ebit:actuals.revenue[i]?+(actuals.ebit[i]/actuals.revenue[i]*100).toFixed(1):0}));
+  const eqDebtData=MONTHS.map((m,i)=>({month:m,equity:actuals.equity[i],debt:(actuals.ltDebt[i]||0)+(actuals.stDebt[i]||0)}));
+  const gearData  =MONTHS.map((m,i)=>({month:m,gearing:actuals.equity[i]?+(((actuals.ltDebt[i]||0)+(actuals.stDebt[i]||0))/actuals.equity[i]*100).toFixed(1):0}));
+  const effData   =MONTHS.map((m,i)=>({month:m,dso:actuals.revenue[i]?+(actuals.receivables[i]/(actuals.revenue[i]/30)).toFixed(0):0}));
+  const fcRevData =MONTHS.map((m,i)=>({month:m,act:actuals.revenue[i],comp:comp.revenue[i]}));
+  const fcEqData  =MONTHS.map((m,i)=>({month:m,act:actuals.equity[i], comp:comp.equity[i]}));
+  const fcCashData=MONTHS.map((m,i)=>({month:m,act:actuals.cash[i],   comp:comp.cash[i]}));
+  const cfAll     =MONTHS.map((_,i)=>({month:MONTHS[i],op:actuals.cfOp[i],inv:actuals.cfInv[i],fin:actuals.cfFin[i],net:actuals.cfOp[i]+actuals.cfInv[i]+actuals.cfFin[i],endCash:actuals.cash[i]}));
+  const cfChart   =cfAll.slice(S,E+1);
+
+  const CSV_FIELDS=[
+    {key:"revenue",label:"revenue"},{key:"cogs",label:"cogs"},{key:"opex",label:"opex"},
+    {key:"ebitda",label:"ebitda"},{key:"depAmort",label:"dep_amort"},{key:"ebit",label:"ebit"},
+    {key:"finExpenses",label:"fin_expenses"},{key:"ebt",label:"ebt"},{key:"tax",label:"tax"},
+    {key:"netProfit",label:"net_profit"},{key:"inventory",label:"inventory"},
+    {key:"receivables",label:"receivables"},{key:"payables",label:"payables"},
+    {key:"equity",label:"equity"},{key:"cash",label:"cash"},
+    {key:"ltDebt",label:"lt_debt"},{key:"stDebt",label:"st_debt"},{key:"otherCL",label:"other_cl"},
+  ];
+
+  const exportCSV=()=>{
+    const hdr=["field",...MONTHS].join(",");
+    const rows=CSV_FIELDS.map(f=>[f.label,...(comp[f.key]||Array(12).fill(0)).map(v=>Math.round(v))].join(","));
+    const csv=["# Targetflow "+compLabel+" Template — "+year,hdr,...rows].join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="targetflow_"+compLabel.toLowerCase()+"_"+year+".csv";a.click();
+  };
+  const exportActCSV=()=>{
+    const hdr=["field",...MONTHS].join(",");
+    const rows=CSV_FIELDS.map(f=>[f.label,...(actuals[f.key]||Array(12).fill(0)).map(v=>Math.round(v))].join(","));
+    const csv=["# Targetflow Actuals — "+year,"# actuals_last: last confirmed month 1-12",hdr,"actuals_last,"+(actLast+1)+",0,0,0,0,0,0,0,0,0,0,0",...rows].join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="targetflow_actuals_"+year+".csv";a.click();
+  };
+  const parseCSV=(file,isAct)=>{
+    if(!file) return;
+    if(isAct) setActName(file.name); else setCsvName(file.name);
+    const r=new FileReader();
+    r.onload=ev=>{
+      try{
+        const lines=ev.target.result.split("\n").map(l=>l.trim()).filter(l=>l&&!l.startsWith("#"));
+        const hIdx=lines.findIndex(l=>l.toLowerCase().startsWith("field"));
+        if(hIdx===-1){alert("No header row found");return;}
+        const cols=lines[hIdx].split(",").map(c=>c.trim().toLowerCase());
+        const mCols=MONTHS.map(m=>cols.indexOf(m.toLowerCase()));
+        const parsed={};let newLast=actLast;
+        for(let i=hIdx+1;i<lines.length;i++){
+          const parts=lines[i].split(",");
+          const fname=parts[0]&&parts[0].trim().toLowerCase();
+          if(!fname) continue;
+          if(isAct&&fname==="actuals_last"){const v=parseInt(parts[1]);if(!isNaN(v)&&v>=1&&v<=12)newLast=v-1;continue;}
+          const match=CSV_FIELDS.find(f=>f.label===fname);
+          if(!match) continue;
+          parsed[match.key]=mCols.map(ci=>{if(ci===-1)return 0;const v=parseFloat(parts[ci]);return isNaN(v)?0:v;});
+        }
+        const base=isAct?actBase:budBase;
+        const result={...base,...parsed};
+        if(parsed.revenue&&parsed.cogs) result.grossProfit=parsed.revenue.map((v,i)=>v-(parsed.cogs[i]||0));
+        if(isAct){setActData(result);setActLast(newLast);}else setCsvData(result);
+      }catch(err){alert("CSV error: "+err.message);}
+    };
+    r.readAsText(file);
+  };
+
+  const TABS=[
+    {id:"group",    label:"Group Structure"},
+    {id:"kpis",     label:"KPIs"},
+    {id:"forecast", label:"Forecast"},
+    {id:"pl",       label:"P&L"},
+    {id:"balance",  label:"Balance Sheet"},
+    {id:"cashflow", label:"Cash Flow"},
+    {id:"data",     label:"Data Import"},
+    {id:"deadlines",label:"Deadlines"},
+  ];
+
+  const plRows=[
+    {label:"Revenue",       ak:"revenue",    ck:"revenue",    color:BLUE,  bold:true},
+    {label:"Cost of Goods", ak:"cogs",       ck:"cogs",       color:SLATE, indent:true},
+    {label:"Gross Profit",  ak:"grossProfit",ck:"grossProfit",color:CYAN,  bold:true},
+    {label:"OpEx",          ak:"opex",       ck:"opex",       color:SLATE, indent:true},
+    {label:"EBITDA",        ak:"ebitda",     ck:"ebitda",     color:AMBER, bold:true},
+    {label:"Depreciation",  ak:"depAmort",   ck:null,         color:SLATE, indent:true},
+    {label:"EBIT",          ak:"ebit",       ck:"ebit",       color:BLUE,  bold:true},
+    {label:"Fin. Expenses", ak:"finExpenses",ck:"finExpenses",color:SLATE, indent:true},
+    {label:"EBT",           ak:"ebt",        ck:"ebt",        color:SLATE},
+    {label:"Tax",           ak:"tax",        ck:"tax",        color:SLATE, indent:true},
+    {label:"Net Profit",    ak:"netProfit",  ck:"netProfit",  color:GREEN, bold:true},
+  ];
+
+  const totCurr=MONTHS.map((_,i)=>(actuals.inventory[i]||0)+(actuals.receivables[i]||0)+(actuals.cash[i]||0)+(actuals.otherCA?actuals.otherCA[i]:0));
+  const totAss =MONTHS.map((_,i)=>(actuals.tangibles?actuals.tangibles[i]:0)+totCurr[i]);
+  const totLiab=MONTHS.map((_,i)=>(actuals.ltDebt[i]||0)+(actuals.stDebt[i]||0)+(actuals.payables[i]||0)+(actuals.otherCL[i]||0));
+  const balRows=[
+    {spacer:"ASSETS"},
+    {label:"Tangible assets",   ak:"tangibles",   ck:null,          color:SLATE,indent:true},
+    {label:"Total Non-current", aa:actuals.tangibles||[], ca:null,  color:"#94a3b8",bold:true},
+    {label:"Inventory",         ak:"inventory",   ck:"inventory",   color:SLATE,indent:true},
+    {label:"Receivables",       ak:"receivables", ck:"receivables", color:SLATE,indent:true},
+    {label:"Cash",              ak:"cash",        ck:"cash",        color:SLATE,indent:true},
+    {label:"Total Current",     aa:totCurr,       ca:null,          color:"#94a3b8",bold:true},
+    {label:"TOTAL ASSETS",      aa:totAss,        ca:null,          color:BLUE, bold:true},
+    {spacer:"EQUITY & LIABILITIES"},
+    {label:"Total Equity",      ak:"equity",      ck:"equity",      color:GREEN,bold:true},
+    {label:"Long-term debt",    ak:"ltDebt",      ck:null,          color:SLATE,indent:true},
+    {label:"Short-term debt",   ak:"stDebt",      ck:null,          color:SLATE,indent:true},
+    {label:"Payables",          ak:"payables",    ck:"payables",    color:SLATE,indent:true},
+    {label:"Other liabilities", ak:"otherCL",     ck:null,          color:SLATE,indent:true},
+    {label:"TOTAL LIABILITIES", aa:totLiab,       ca:null,          color:RED,  bold:true},
+  ];
+
+  const netCF=MONTHS.map((_,i)=>actuals.cfOp[i]+actuals.cfInv[i]+actuals.cfFin[i]);
+  const cfTbl=[
+    {label:"EBITDA",                   aa:actuals.ebitda,              color:AMBER,bold:true},
+    {label:"Working Capital Changes",  aa:actuals.wcChange,            color:SLATE},
+    {label:"Operative CF",             aa:actuals.cfOp,                color:CYAN, bold:true},
+    {label:"Interest paid",            aa:actuals.finExpenses.map(v=>-v),color:SLATE},
+    {label:"Taxes paid",               aa:actuals.tax.map(v=>-v),      color:SLATE},
+    {label:"OPERATIVE CASH FLOW",      aa:actuals.cfOp,                color:GREEN,bold:true},
+    {label:"Investment Cash Flow",     aa:actuals.cfInv,               color:RED,  bold:true},
+    {label:"Financing Cash Flow",      aa:actuals.cfFin,               color:"#94a3b8",bold:true},
+    {label:"NET CASH CHANGE",          aa:netCF,                       color:BLUE, bold:true},
+    {label:"End Cash Balance",         aa:cfAll.map(r=>r.endCash),     color:CYAN, bold:true},
+  ];
+  const totOp =sum(sl(actuals.cfOp, S,E));
+  const totInv=sum(sl(actuals.cfInv,S,E));
+  const totFin=sum(sl(actuals.cfFin,S,E));
+
+  const deadlines=[
+    {month:"January",  due:"Feb 15",status:"done"},
+    {month:"February", due:"Mar 15",status:"done"},
+    {month:"March",    due:"Apr 15",status:"done"},
+    {month:"April",    due:"May 15",status:"done"},
+    {month:"May",      due:"Jun 15",status:"done"},
+    {month:"June",     due:"Aug 15",status:"done"},
+    {month:"July",     due:"Aug 15",status:"done"},
+    {month:"August",   due:"Sep 15",status:"current",daysLeft:6},
+    {month:"September",due:"Oct 15",status:"upcoming",daysLeft:36},
+    {month:"October",  due:"Nov 15",status:"upcoming",daysLeft:67},
+    {month:"November", due:"Dec 15",status:"upcoming",daysLeft:97},
+    {month:"December", due:"Jan 15",status:"upcoming",daysLeft:128},
+  ];
 
   return (
-    <div>
-      <div style={{display:'flex',gap:8,marginBottom:20}}>
-        <YBtn year={2024} active={yr===2024} onClick={()=>setYr(2024)}/>
-        <YBtn year={2025} active={yr===2025} onClick={()=>setYr(2025)}/>
-        <YBtn year={2026} label="2026 BUD" active={yr===2026} onClick={()=>setYr(2026)}/>
-        <span style={{fontSize:11,color:'#334155',marginLeft:4}}>DEC snapshot · Consolidated</span>
-      </div>
+    <div style={{minHeight:"100vh",background:"#080b12",color:"#e2e8f0",fontFamily:"'DM Sans',sans-serif"}}>
+      <style>{STYLE}</style>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:22}}>
-        <KPI label="Total Assets"  value={fmt(tA,true)}  color={ACCENT}/>
-        <KPI label="Total Equity"  value={fmt(tE,true)}  color={vc(tE)}/>
-        <KPI label="Equity Ratio"  value={pct(eqR)}      color={vc(eqR)}/>
-        <KPI label="Cash"          value={fmt(bs.cash,true)} color="#f59e0b"/>
-        <KPI label="LT Loan"       value={fmt(bs.long_term_loan,true)} color="#94a3b8"/>
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,marginBottom:22}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:'#475569',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.1em'}}>Assets</div>
-          {[
-            {l:'Intangible Assets',   v:bs.intangible},
-            {l:'Tangible Assets',     v:bs.tangible},
-            {l:'LT Investments',      v:bs.lt_invest},
-            {l:'Total Non-Current',   v:bs.total_noncurrent, b:true},
-            {l:'Inventory',           v:bs.inventory,  indent:true},
-            {l:'Trade Receivables',   v:bs.trade_rec,  indent:true},
-            {l:'Cash & Equivalents',  v:bs.cash,       indent:true},
-            {l:'Total Current',       v:bs.total_current, b:true},
-            {l:'TOTAL ASSETS',        v:tA, b:true},
-          ].map(({l,v,b,indent}) => (
-            <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'5px 10px',background:b?'rgba(255,255,255,0.04)':'transparent',borderRadius:4,marginBottom:2}}>
-              <span style={{fontSize:11,color:indent?'#475569':'#94a3b8',fontWeight:b?700:400,paddingLeft:indent?12:0}}>{l}</span>
-              <span style={{fontSize:11,color:b?'#f1f5f9':'#64748b',fontFamily:'monospace',fontWeight:b?700:400}}>{fmt(v,true)}</span>
-            </div>
-          ))}
+      <div style={{borderBottom:"1px solid #0c1829",padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:28,height:28,background:"linear-gradient(135deg,#1d4ed8,#0ea5e9)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontSize:10,fontWeight:700,color:"#fff",fontFamily:"'DM Mono',monospace"}}>TF</span>
+          </div>
+          <div>
+            <div style={{fontSize:14,fontWeight:600}}>Strand Group</div>
+            <div style={{fontSize:10,color:"#334155",fontFamily:"'DM Mono',monospace"}}>Financial Dashboard · {year}</div>
+          </div>
         </div>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,color:'#475569',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.1em'}}>Equity & Liabilities</div>
-          {[
-            {l:'Retained Earnings',  v:bs.retained_earnings},
-            {l:'TOTAL EQUITY',       v:tE, b:true, color:vc(tE)},
-            {l:'Long-term Loan',     v:bs.long_term_loan},
-            {l:'Trade Payables',     v:bs.trade_payables},
-            {l:'TOTAL LIABILITIES',  v:tL, b:true},
-          ].map(({l,v,b,color}) => (
-            <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'5px 10px',background:b?'rgba(255,255,255,0.04)':'transparent',borderRadius:4,marginBottom:2}}>
-              <span style={{fontSize:11,color:'#94a3b8',fontWeight:b?700:400}}>{l}</span>
-              <span style={{fontSize:11,color:color||(b?'#f1f5f9':'#64748b'),fontFamily:'monospace',fontWeight:b?700:400}}>{fmt(v,true)}</span>
-            </div>
+        <div style={{display:"flex",gap:6}}>
+          {["2023","2024","2025","2026"].map(y=>(
+            <button key={y} className={"yr-btn"+(year===y?" active":"")} onClick={()=>setYear(y)}>{y}</button>
           ))}
         </div>
       </div>
 
-      <ST>Group vs Entities — Revenue {yr===2026?'(BUD)':'(ACT)'}</ST>
-      <div style={{height:200,marginBottom:22}}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={ENTITIES.filter(e=>e.key!=='group').map(e => ({
-            name: e.label.replace(' Oy','').replace(' SL',''),
-            Revenue: sum(SEED[e.key]?.[yr]?.revenue||[]),
-            color: e.accent,
-          }))} margin={{top:0,right:0,left:0,bottom:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-            <XAxis dataKey="name" tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <YAxis tickFormatter={v=>fmt(v,true)} tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <Tooltip content={<TT/>}/>
-            <Bar dataKey="Revenue" fill={ACCENT} opacity={0.8} radius={[2,2,0,0]}/>
-            <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)"/>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
-// ─── OVERVIEW VIEW ────────────────────────────────────────────────────────────
-function OverviewView({ onEntityClick }) {
-  const [yr, setYr] = useState(2025)
-  const grp = SEED.group[yr] || {}
-  const tRev = sum(grp.revenue)
-  const tNet = sum(grp.profit_loss)
-  const tEB  = sum(grp.ebitda)
-
-  const waterfall = ENTITIES.filter(e=>e.key!=='group').map(e => {
-    const net = sum(SEED[e.key]?.[yr]?.profit_loss||[])
-    return { name: e.label.replace(' Oy','').replace(' SL',''), value: net, color: vc(net) }
-  })
-
-  return (
-    <div>
-      <div style={{display:'flex',gap:8,marginBottom:20}}>
-        <YBtn year={2024} active={yr===2024} onClick={()=>setYr(2024)}/>
-        <YBtn year={2025} active={yr===2025} onClick={()=>setYr(2025)}/>
-        <YBtn year={2026} label="2026 BUD" active={yr===2026} onClick={()=>setYr(2026)}/>
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:22}}>
-        <KPI label="Group Revenue"  value={fmt(tRev,true)}  color={ACCENT}/>
-        <KPI label="Group EBITDA"   value={fmt(tEB,true)}   color={vc(tEB)}/>
-        <KPI label="Group Net P/L"  value={fmt(tNet,true)}  color={vc(tNet)}/>
-        <KPI label="Net Margin"     value={tRev?pct(tNet/tRev):'–'} color={vc(tNet)}/>
-      </div>
-
-      <ST>Entity Summary — click to drill in</ST>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:24}}>
-        {ENTITIES.map(ent => (
-          <EntityCard key={ent.key} ent={ent} yr={yr} onClick={()=>onEntityClick(ent.key)} active={false}/>
+      <div style={{borderBottom:"1px solid #0c1829",padding:"0 32px",display:"flex",gap:0,overflowX:"auto"}}>
+        {TABS.map(t=>(
+          <button key={t.id} className="tab-btn" onClick={()=>setTab(t.id)} style={{padding:"12px 16px",fontSize:12,fontWeight:tab===t.id?600:400,color:tab===t.id?"#60a5fa":"#475569",borderBottom:tab===t.id?"2px solid #3b82f6":"2px solid transparent",marginBottom:-1,whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
         ))}
       </div>
 
-      <ST>Net Profit / Loss by Entity — {yr}</ST>
-      <div style={{height:200,marginBottom:22}}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={waterfall} margin={{top:0,right:0,left:0,bottom:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-            <XAxis dataKey="name" tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <YAxis tickFormatter={v=>fmt(v,true)} tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <Tooltip content={<TT/>}/>
-            <Bar dataKey="value" name="Net P/L" fill={ACCENT} opacity={0.8} radius={[2,2,0,0]}/>
-            <ReferenceLine y={0} stroke="rgba(255,255,255,0.3)"/>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <PeriodBar startM={S} endM={E} setStart={setStartM} setEnd={setEndM} compLabel={compLabel} actLast={actLast}/>
 
-      <ST>Group Revenue Trend 2024–2026</ST>
-      <div style={{height:180,marginBottom:22}}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={MONTHS.map((m,i) => ({
-            month:m,
-            '2024 ACT': (SEED.group[2024].revenue||[])[i]||0,
-            '2025 ACT': (SEED.group[2025].revenue||[])[i]||0,
-            '2026 BUD': (SEED.group[2026].revenue||[])[i]||0,
-          }))} margin={{top:0,right:0,left:0,bottom:0}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)"/>
-            <XAxis dataKey="month" tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <YAxis tickFormatter={v=>fmt(v,true)} tick={{fill:'#475569',fontSize:11}} axisLine={false} tickLine={false}/>
-            <Tooltip content={<TT/>}/>
-            <Legend wrapperStyle={{fontSize:11,color:'#475569'}}/>
-            <Line type="monotone" dataKey="2024 ACT" stroke="#475569" strokeWidth={2} dot={false} strokeDasharray="4 3"/>
-            <Line type="monotone" dataKey="2025 ACT" stroke="#64748b" strokeWidth={2} dot={false}/>
-            <Line type="monotone" dataKey="2026 BUD" stroke={ACCENT}  strokeWidth={2} dot={false}/>
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
-// ─── DEADLINES VIEW ───────────────────────────────────────────────────────────
-function DeadlinesView() {
-  const today = new Date()
-  return (
-    <div>
-      <ST mt={0}>Reporting Deadlines 2026</ST>
-      <div style={{overflowX:'auto',marginBottom:24}}>
-        <table style={{width:'100%',fontSize:12}}>
-          <thead>
-            <tr style={{borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
-              {['Month','Deadline','Note','Status'].map(h =>
-                <th key={h} style={{textAlign:'left',padding:'8px 12px',color:'#475569',fontWeight:700}}>{h}</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {DEADLINES.map((d,i) => {
-              const dl = new Date(d.deadline)
-              const ip = dl < today
-              const is = !ip && (dl - today) < 14*24*3600*1000
-              const sc = ip?'#334155':is?'#f59e0b':'#34d399'
-              return (
-                <tr key={i} style={{borderBottom:'1px solid rgba(255,255,255,0.04)',opacity:ip?0.5:1}}>
-                  <td style={{padding:'9px 12px',fontWeight:700,color:'#f1f5f9'}}>{d.month}</td>
-                  <td style={{padding:'9px 12px'}}><span style={{color:sc,fontWeight:600}}>{d.deadline}</span></td>
-                  <td style={{padding:'9px 12px',color:'#475569',fontSize:11}}>{d.note||''}</td>
-                  <td style={{padding:'9px 12px'}}><span style={{fontSize:10,color:sc,background:`${sc}20`,padding:'2px 8px',borderRadius:8}}>{ip?'DONE':is?'SOON':'OPEN'}</span></td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onSuccess }) {
-  const [pw, setPw]   = useState('')
-  const [err, setErr] = useState(false)
-  const attempt = () => {
-    if (pw === PASSWORD) { sessionStorage.setItem(SESSION_KEY,'1'); onSuccess() }
-    else { setErr(true); setTimeout(()=>setErr(false),1500) }
-  }
-  return (
-    <div style={{minHeight:'100vh',background:'#080b12',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <div style={{width:340,textAlign:'center'}}>
-        <div style={{fontSize:11,letterSpacing:'0.3em',color:'#334155',marginBottom:12,textTransform:'uppercase'}}>Board Dashboard</div>
-        <div style={{fontSize:28,fontWeight:800,letterSpacing:'-0.03em',color:'#f1f5f9',marginBottom:4}}>Strand Group</div>
-        <div style={{width:40,height:2,background:ACCENT,margin:'0 auto 32px'}}/>
-        <input
-          type="password" placeholder="Enter password" value={pw}
-          onChange={e=>setPw(e.target.value)}
-          onKeyDown={e=>e.key==='Enter'&&attempt()}
-          style={{width:'100%',padding:'13px 16px',background:'rgba(255,255,255,0.04)',border:`1px solid ${err?'#f87171':'rgba(255,255,255,0.1)'}`,borderRadius:8,color:'#f1f5f9',fontSize:14,outline:'none',fontFamily:'inherit',marginBottom:10}}
-          autoFocus
-        />
-        <button onClick={attempt} style={{width:'100%',padding:'13px',background:ACCENT,border:'none',borderRadius:8,color:'#080b12',fontWeight:800,fontSize:14,cursor:'pointer',fontFamily:'inherit'}}>ENTER</button>
-        {err && <div style={{marginTop:10,color:'#f87171',fontSize:13}}>Incorrect password</div>}
-      </div>
-    </div>
-  )
-}
-
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
-const TOP_TABS = [
-  { id:'overview',  label:'Overview' },
-  { id:'pl',        label:'P & L' },
-  { id:'bs',        label:'Balance Sheet' },
-  { id:'deadlines', label:'Deadlines' },
-]
-
-export default function App() {
-  const [authed,      setAuthed]      = useState(!!sessionStorage.getItem(SESSION_KEY))
-  const [topTab,      setTopTab]      = useState('overview')
-  const [entityKey,   setEntityKey]   = useState('group')
-  const [dbStatus,    setDbStatus]    = useState('idle')
-
-  useEffect(() => { if (authed) checkDb() }, [authed])
-
-  const checkDb = async () => {
-    if (!supabase) { setDbStatus('offline'); return }
-    setDbStatus('loading')
-    try {
-      const { data, error } = await supabase.from('dashboard_pnl').select('id').eq('client', CLIENT).limit(1)
-      if (error) throw error
-      setDbStatus('ok')
-    } catch { setDbStatus('error') }
-  }
-
-  if (!authed) return <Login onSuccess={() => setAuthed(true)}/>
-
-  const activeEnt = ENTITIES.find(e => e.key === entityKey) || ENTITIES[0]
-
-  return (
-    <div style={{minHeight:'100vh',background:'#080b12',color:'#e2e8f0',fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <header style={{borderBottom:'1px solid rgba(255,255,255,0.05)',padding:'0 28px',display:'flex',alignItems:'center',justifyContent:'space-between',height:52,position:'sticky',top:0,zIndex:100,background:'rgba(8,11,18,0.97)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <div style={{fontSize:16,fontWeight:800,letterSpacing:'-0.02em',color:'#f1f5f9'}}>Strand Group</div>
-          <div style={{width:1,height:16,background:'rgba(255,255,255,0.08)'}}/>
-          <div style={{fontSize:11,color:'#334155',letterSpacing:'0.05em'}}>Board Dashboard</div>
-        </div>
-        <nav style={{display:'flex',gap:2}}>
-          {TOP_TABS.map(t => (
-            <button key={t.id} onClick={()=>setTopTab(t.id)} style={{padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',background:topTab===t.id?`${ACCENT}20`:'transparent',color:topTab===t.id?ACCENT:'#475569',fontWeight:topTab===t.id?700:400,fontSize:12,fontFamily:'inherit',transition:'all 0.12s'}}>{t.label}</button>
-          ))}
-        </nav>
-        <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'#334155'}}>
-          <span style={{width:6,height:6,borderRadius:'50%',background:dbStatus==='ok'?'#34d399':dbStatus==='loading'?'#f59e0b':dbStatus==='offline'?'#475569':'#f87171',display:'inline-block'}}/>
-          {dbStatus==='ok'?'Supabase':dbStatus==='loading'?'Syncing…':dbStatus==='offline'?'Offline':'Error'}
-        </div>
-      </header>
-
-      {/* Entity sub-nav for P&L tab */}
-      {topTab === 'pl' && (
-        <div style={{borderBottom:'1px solid rgba(255,255,255,0.04)',padding:'0 28px',display:'flex',gap:4,overflowX:'auto'}}>
-          {ENTITIES.map(e => (
-            <button key={e.key} onClick={()=>setEntityKey(e.key)} style={{padding:'8px 14px',borderBottom:`2px solid ${entityKey===e.key?e.accent:'transparent'}`,border:'none',background:'transparent',color:entityKey===e.key?e.accent:'#475569',fontWeight:entityKey===e.key?700:400,fontSize:11,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',transition:'all 0.1s'}}>{e.label}</button>
+      {isGroup&&!["group","data","deadlines"].includes(tab)&&(
+        <div style={{borderTop:"1px solid #0c1829",background:"#060a14",padding:"8px 32px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace"}}>VIEWING</span>
+          <button onClick={()=>setActiveEntity(null)} style={{padding:"4px 12px",borderRadius:6,fontFamily:"'DM Mono',monospace",fontSize:10,cursor:"pointer",border:"1px solid "+(activeEntity===null?"#3b82f6":"#1e2d45"),background:activeEntity===null?"#1e3a5f":"transparent",color:activeEntity===null?"#60a5fa":SLATE}}>Consolidated</button>
+          {entities.map(ent=>(
+            <button key={ent.id} onClick={()=>setActiveEntity(ent.id)} style={{padding:"4px 12px",borderRadius:6,fontFamily:"'DM Mono',monospace",fontSize:10,cursor:"pointer",border:"1px solid "+(activeEntity===ent.id?ent.color:"#1e2d45"),background:activeEntity===ent.id?ent.color+"22":"transparent",color:activeEntity===ent.id?ent.color:SLATE,display:"flex",alignItems:"center",gap:5}}>
+              <span style={{width:5,height:5,borderRadius:"50%",background:ent.color,display:"inline-block"}}/>
+              {ent.name}
+            </button>
           ))}
         </div>
       )}
 
-      <main style={{padding:'24px 28px',maxWidth:1400,margin:'0 auto'}}>
-        <h1 style={{fontSize:18,fontWeight:800,color:'#f1f5f9',marginBottom:22,letterSpacing:'-0.02em',display:'flex',alignItems:'center',gap:10}}>
-          {topTab==='pl' ? (
-            <>
-              <span style={{color:activeEnt.accent}}>{activeEnt.label}</span>
-              <span style={{fontSize:12,color:'#334155',fontWeight:400}}>P&L · 2024–2026 · ACT + BUD</span>
-            </>
-          ) : topTab==='overview' ? (
-            <>Overview <span style={{fontSize:12,color:'#334155',fontWeight:400}}>All entities · 2024–2026</span></>
-          ) : topTab==='bs' ? (
-            <>Balance Sheet <span style={{fontSize:12,color:'#334155',fontWeight:400}}>Consolidated · DEC snapshot</span></>
-          ) : (
-            <>Deadlines <span style={{fontSize:12,color:'#334155',fontWeight:400}}>2026</span></>
-          )}
-        </h1>
+      <div style={{padding:"22px 32px",maxWidth:1600}}>
 
-        {topTab === 'overview'  && <OverviewView onEntityClick={key => { setEntityKey(key); setTopTab('pl') }}/>}
-        {topTab === 'pl'        && <PLView entityKey={entityKey}/>}
-        {topTab === 'bs'        && <BSView/>}
-        {topTab === 'deadlines' && <DeadlinesView/>}
-      </main>
+        {tab==="group"&&(
+          <GroupStructureTab entities={entities} selectedEnt={selectedEnt} setSelectedEnt={setSelectedEnt} editingEnt={editingEnt} setEditingEnt={setEditingEnt} isGroup={isGroup} addEntity={addEntity} updateEntity={updateEntity} removeEntity={removeEntity}/>
+        )}
 
-      <div style={{textAlign:'center',padding:'18px',borderTop:'1px solid rgba(255,255,255,0.04)',fontSize:11,color:'#1e293b'}}>
-        Strand Group · Board Dashboard · Confidential · {new Date().getFullYear()}
+        {tab==="kpis"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:24}}>
+            <div>
+              <SecTitle c="Profitability"/>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:14}}>
+                <Gauge label="Gross Margin"  value={gmPct}  unit="%" target={65} targetLabel="Target" color={CYAN}   desc="(Revenue − COGS) / Revenue"/>
+                <Gauge label="EBIT Margin"   value={emPct}  unit="%" target={15} targetLabel="Target" color={BLUE}   desc="EBIT / Revenue"/>
+                <Gauge label="ROE"           value={roePct} unit="%" target={12} targetLabel="Min"    color={PURPLE} desc="Net Profit / Equity"/>
+              </div>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>Margin % Trend</div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={marginData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                    <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>v+"%"}/>
+                    <Tooltip content={<Tt/>}/>
+                    <Line type="monotone" dataKey="gross" stroke={CYAN} strokeWidth={2} dot={false} name="Gross %"/>
+                    <Line type="monotone" dataKey="ebit"  stroke={BLUE} strokeWidth={2} dot={false} name="EBIT %"/>
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div>
+              <SecTitle c="Sustainability"/>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:14}}>
+                <Gauge label="Equity Ratio"      value={eqR}   unit="%" target={40} targetLabel="Min" color={GREEN} desc="Equity / Total Capital"/>
+                <Gauge label="Gearing Ratio"     value={gear}  unit="%" target={80} targetLabel="Max" color={AMBER} desc="Debt / Equity · lower is better" flip={true}/>
+                <Gauge label="Interest Coverage" value={intCov} unit="x" target={3}  targetLabel="Min" color={CYAN}  desc="EBIT / Finance costs"/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                  <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>Equity vs Debt</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <AreaChart data={eqDebtData}>
+                      <defs><linearGradient id="eqG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={GREEN} stopOpacity={0.2}/><stop offset="95%" stopColor={GREEN} stopOpacity={0}/></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                      <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                      <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>"€"+(v/1e6).toFixed(1)+"M"}/>
+                      <Tooltip content={<Tt/>}/>
+                      <Area type="monotone" dataKey="equity" stroke={GREEN} fill="url(#eqG)" strokeWidth={2} name="Equity"/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                  <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>Gearing Trend</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={gearData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                      <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                      <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>v+"%"}/>
+                      <Tooltip content={<Tt/>}/>
+                      <ReferenceLine y={80} stroke={RED} strokeDasharray="4 4"/>
+                      <Line type="monotone" dataKey="gearing" stroke={AMBER} strokeWidth={2} dot={false} name="Gearing %"/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+            <div>
+              <SecTitle c="Efficiency"/>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:14}}>
+                <Gauge label="DSO (AR days)"  value={dso} unit=" days" target={45} targetLabel="Max" color={CYAN}   desc="Receivables / (Revenue/365)" flip={true}/>
+                <Gauge label="DIO (Inv days)" value={dio} unit=" days" target={60} targetLabel="Max" color={PURPLE} desc="Inventory / (Revenue/365)" flip={true}/>
+                <Gauge label="DPO (AP days)"  value={dpo} unit=" days" target={30} targetLabel="Min" color={AMBER}  desc="Payables / (Revenue/365)"/>
+              </div>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>DSO Trend</div>
+                <ResponsiveContainer width="100%" height={140}>
+                  <LineChart data={effData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                    <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>v+" d"}/>
+                    <Tooltip content={<Tt/>}/>
+                    <ReferenceLine y={45} stroke={RED} strokeDasharray="4 4"/>
+                    <Line type="monotone" dataKey="dso" stroke={CYAN} strokeWidth={2} dot={false} name="DSO"/>
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="forecast"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:10,padding:4,display:"flex",gap:2}}>
+                {["budget","forecast"].map(m=>(
+                  <button key={m} className="mode-btn" onClick={()=>setMode(m)} style={{borderRadius:7,background:mode===m?"#1e3a5f":"transparent",color:mode===m?"#60a5fa":SLATE,fontWeight:mode===m?600:400}}>
+                    {m==="budget"?"📋 Budget":"📈 Forecast"}
+                  </button>
+                ))}
+              </div>
+              <button onClick={()=>setTab("data")} style={{padding:"6px 14px",background:"none",border:"1px solid #1e2d45",borderRadius:8,color:SLATE,fontFamily:"'DM Mono',monospace",fontSize:10,cursor:"pointer"}}>↑ Manage data</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+              {[
+                {title:"Revenue ACT vs "+compLabel, data:fcRevData, k1:"act",k2:"comp",c1:BLUE, c2:AMBER},
+                {title:"Equity ACT vs "+compLabel,  data:fcEqData,  k1:"act",k2:"comp",c1:GREEN,c2:AMBER},
+                {title:"Cash ACT vs "+compLabel,    data:fcCashData,k1:"act",k2:"comp",c1:CYAN, c2:AMBER},
+              ].map(ch=>(
+                <div key={ch.title} style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                  <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>{ch.title}</div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <LineChart data={ch.data}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                      <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                      <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>"€"+(v/1e3).toFixed(0)+"K"}/>
+                      <Tooltip content={<Tt/>}/>
+                      <Line type="monotone" dataKey={ch.k1} stroke={ch.c1} strokeWidth={2} dot={false} name="ACT"/>
+                      <Line type="monotone" dataKey={ch.k2} stroke={ch.c2} strokeWidth={2} dot={false} strokeDasharray="4 4" name={compLabel}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab==="pl"&&(
+          <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#94a3b8"}}>Income Statement · {MONTHS[S]}–{MONTHS[E]} {year}</div>
+              <div style={{fontSize:9,fontFamily:"'DM Mono',monospace",display:"flex",gap:12,color:SLATE}}>
+                <span style={{color:BLUE}}>ACT = Actual</span>
+                <span style={{color:AMBER}}>{compLabel} = {mode==="budget"?"Budget":"Forecast"}</span>
+                <span style={{color:RED}}>VAR = ACT − {compLabel}</span>
+              </div>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+                <TblHead visMonths={visMonths} monthTypes={monthTypes} totalLabel={MONTHS[S]+"–"+MONTHS[E]}/>
+                <tbody>
+                  {plRows.map((r,ri)=>(
+                    <TblRow key={ri} label={r.label} actArr={actuals[r.ak]||[]} compArr={r.ck?comp[r.ck]:null} color={r.color} bold={r.bold} indent={r.indent} s={S} e={E}/>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab==="balance"&&(
+          <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#94a3b8"}}>Balance Sheet · {MONTHS[S]}–{MONTHS[E]} {year}</div>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+                <TblHead visMonths={visMonths} monthTypes={monthTypes} totalLabel="End of period"/>
+                <tbody>
+                  {balRows.map((r,ri)=>{
+                    if(r.spacer){
+                      return (
+                        <tr key={ri}>
+                          <td colSpan={visMonths.length*2+4} style={{padding:"10px 20px",fontSize:10,fontWeight:700,color:SLATE,background:"#070c17",textTransform:"uppercase",letterSpacing:"0.08em"}}>{r.spacer}</td>
+                        </tr>
+                      );
+                    }
+                    const aArr=r.aa||(actuals[r.ak]||[]);
+                    const cArr=r.ca!==undefined?r.ca:(r.ck?comp[r.ck]:null);
+                    return <TblRow key={ri} label={r.label} actArr={aArr} compArr={cArr} color={r.color} bold={r.bold} indent={r.indent} s={S} e={E}/>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab==="cashflow"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+              {[
+                {l:"Operative CF", v:totOp,  c:totOp>=0?GREEN:RED},
+                {l:"Investment CF",v:totInv, c:totInv>=0?GREEN:RED},
+                {l:"Financing CF", v:totFin, c:totFin>=0?GREEN:RED},
+                {l:"Net CF",       v:totOp+totInv+totFin,c:(totOp+totInv+totFin)>=0?GREEN:RED},
+              ].map(k=>(
+                <div key={k.l} style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:"14px 18px"}}>
+                  <div style={{fontSize:10,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:6,textTransform:"uppercase"}}>{k.l}</div>
+                  <div style={{fontSize:22,fontWeight:700,color:k.c,fontFamily:"'DM Mono',monospace"}}>{fmt(k.v)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>Monthly Cash Flows</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={cfChart}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                    <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>"€"+(v/1e3).toFixed(0)+"K"}/>
+                    <Tooltip content={<Tt/>}/>
+                    <Bar dataKey="op"  fill={GREEN} name="Operative" radius={[2,2,0,0]}/>
+                    <Bar dataKey="inv" fill={RED}   name="Investment" radius={[2,2,0,0]}/>
+                    <Bar dataKey="fin" fill={AMBER} name="Financing" radius={[2,2,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:22}}>
+                <div style={{fontSize:11,color:SLATE,fontFamily:"'DM Mono',monospace",marginBottom:12}}>End Cash Balance</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={cfAll}>
+                    <defs><linearGradient id="cashG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={CYAN} stopOpacity={0.3}/><stop offset="95%" stopColor={CYAN} stopOpacity={0}/></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#0f1e30"/>
+                    <XAxis dataKey="month" tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fontSize:10,fill:SLATE}} axisLine={false} tickLine={false} tickFormatter={v=>"€"+(v/1e3).toFixed(0)+"K"}/>
+                    <Tooltip content={<Tt/>}/>
+                    <Area type="monotone" dataKey="endCash" stroke={CYAN} fill="url(#cashG)" strokeWidth={2} name="End Cash"/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+              <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30"}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#94a3b8"}}>Cash Flow Statement · {MONTHS[S]}–{MONTHS[E]} {year}</div>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+                  <TblHead visMonths={visMonths} monthTypes={monthTypes} totalLabel={MONTHS[S]+"–"+MONTHS[E]}/>
+                  <tbody>
+                    {cfTbl.map((row,ri)=>{
+                      const sliced=sl(row.aa,S,E);
+                      const total=sum(sliced);
+                      return (
+                        <tr key={ri} className="tbl-row" style={{borderBottom:"1px solid #080f1a"}}>
+                          <td style={{padding:"7px 20px",color:row.color,fontWeight:row.bold?600:400,fontSize:row.bold?12:11,position:"sticky",left:0,background:"#0c1420",zIndex:1}}>{row.label}</td>
+                          {sliced.map((v,i)=>[
+                            <td key={"a"+i} style={{padding:"7px 8px",textAlign:"right",color:row.color,fontWeight:row.bold?600:400,fontSize:11,fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{fmt(v)}</td>,
+                            <td key={"c"+i} style={{padding:"7px 8px",textAlign:"right",color:SLATE,fontSize:11}}>—</td>,
+                          ])}
+                          <td style={{padding:"7px 8px",textAlign:"right",color:row.color,fontWeight:700,borderLeft:"1px solid #0f1e30",fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{fmt(total)}</td>
+                          <td style={{padding:"7px 8px",color:SLATE}}>—</td>
+                          <td style={{padding:"7px 8px",color:SLATE}}>—</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="data"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+
+            {/* ── STATUS BAR ── */}
+            <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,padding:"14px 22px",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:actData?GREEN:SLATE}}/>
+                <span style={{fontSize:11,color:actData?GREEN:SLATE,fontFamily:"'DM Mono',monospace"}}>{actData?"✓ "+actName+" · ACT thru "+MONTHS[actLast]:"Demo actuals"}</span>
+                {actData&&<button onClick={()=>{setActData(null);setActName(null);setActLast(ACT_LAST_DEFAULT);}} style={{background:"none",border:"1px solid #1e2d45",borderRadius:6,padding:"3px 8px",color:SLATE,fontSize:10,cursor:"pointer"}}>✕ Clear</button>}
+              </div>
+              <div style={{width:1,height:20,background:"#0f1e30"}}/>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:csvData?AMBER:SLATE}}/>
+                <span style={{fontSize:11,color:csvData?AMBER:SLATE,fontFamily:"'DM Mono',monospace"}}>{csvData?"✓ "+csvName:"Demo "+compLabel}</span>
+                {csvData&&<button onClick={()=>{setCsvData(null);setCsvName(null);}} style={{background:"none",border:"1px solid #1e2d45",borderRadius:6,padding:"3px 8px",color:SLATE,fontSize:10,cursor:"pointer"}}>✕ Clear</button>}
+              </div>
+            </div>
+
+            {/* ── API SYNC PANEL ── */}
+            <ApiSyncPanel year={year} actLast={actLast} setActLast={setActLast}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+                <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",background:"#071728"}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#60a5fa"}}>Actuals Import</div>
+                  <div style={{fontSize:11,color:SLATE,marginTop:2}}>Confirmed monthly figures</div>
+                </div>
+                <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:2}}>Step 1 — Download template</div>
+                    <div style={{fontSize:10,color:SLATE}}>Pre-filled with current actuals · set actuals_last to last confirmed month</div>
+                  </div>
+                  <button onClick={exportActCSV} style={{flexShrink:0,padding:"8px 14px",background:"#071728",border:"1px solid #3b82f6",borderRadius:8,color:"#60a5fa",fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,cursor:"pointer"}}>↓ Actuals CSV</button>
+                </div>
+                <div style={{padding:"14px 22px"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:10}}>Step 2 — Upload</div>
+                  <div className="upload-zone" style={{padding:"18px 20px",borderColor:dragOverA?"#3b82f6":"#1e3a5f",background:dragOverA?"#0c1e35":"transparent"}}
+                    onDragOver={e=>{e.preventDefault();setDragOverA(true);}} onDragLeave={()=>setDragOverA(false)}
+                    onDrop={e=>{e.preventDefault();setDragOverA(false);parseCSV(e.dataTransfer.files[0],true);}}
+                    onClick={()=>fileRefA.current.click()}>
+                    <input ref={fileRefA} type="file" accept=".csv" style={{display:"none"}} onChange={e=>parseCSV(e.target.files[0],true)}/>
+                    {actName
+                      ? <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span style={{fontSize:12,color:GREEN,fontFamily:"'DM Mono',monospace"}}>✓ {actName}</span>
+                          <button onClick={e=>{e.stopPropagation();setActData(null);setActName(null);setActLast(ACT_LAST_DEFAULT);}} style={{background:"none",border:"1px solid #1e2d45",borderRadius:6,padding:"3px 8px",color:SLATE,fontSize:10,cursor:"pointer"}}>✕</button>
+                        </div>
+                      : <div>
+                          <div style={{fontSize:12,color:"#94a3b8",marginBottom:3}}>📂 Drop CSV here or click to browse</div>
+                          <div style={{fontSize:9,color:"#1e2d45",fontFamily:"'DM Mono',monospace"}}>Use the template above</div>
+                        </div>}
+                  </div>
+                </div>
+              </div>
+              <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+                <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",background:"#1a0e00",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:AMBER}}>Budget / Forecast Import</div>
+                    <div style={{fontSize:11,color:SLATE,marginTop:2}}>Comparison figures</div>
+                  </div>
+                  <div style={{background:"#0c1420",border:"1px solid #1e2d45",borderRadius:8,padding:3,display:"flex",gap:2}}>
+                    {["budget","forecast"].map(m=>(
+                      <button key={m} className="mode-btn" onClick={()=>setMode(m)} style={{borderRadius:6,background:mode===m?"#2d1f00":"transparent",color:mode===m?AMBER:SLATE,fontWeight:mode===m?600:400,fontSize:10}}>
+                        {m==="budget"?"Budget":"Forecast"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:2}}>Step 1 — Download template</div>
+                    <div style={{fontSize:10,color:SLATE}}>Pre-filled with current {compLabel} data</div>
+                  </div>
+                  <button onClick={exportCSV} style={{flexShrink:0,padding:"8px 14px",background:"#1a0e00",border:"1px solid "+AMBER,borderRadius:8,color:AMBER,fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,cursor:"pointer"}}>↓ {compLabel} CSV</button>
+                </div>
+                <div style={{padding:"14px 22px"}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:10}}>Step 2 — Upload</div>
+                  <div className="upload-zone" style={{padding:"18px 20px",borderColor:dragOver?AMBER:"#1e3a5f",background:dragOver?"#1a0e00":"transparent"}}
+                    onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)}
+                    onDrop={e=>{e.preventDefault();setDragOver(false);parseCSV(e.dataTransfer.files[0],false);}}
+                    onClick={()=>fileRef.current.click()}>
+                    <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}} onChange={e=>parseCSV(e.target.files[0],false)}/>
+                    {csvName
+                      ? <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span style={{fontSize:12,color:AMBER,fontFamily:"'DM Mono',monospace"}}>✓ {csvName}</span>
+                          <button onClick={e=>{e.stopPropagation();setCsvData(null);setCsvName(null);}} style={{background:"none",border:"1px solid #1e2d45",borderRadius:6,padding:"3px 8px",color:SLATE,fontSize:10,cursor:"pointer"}}>✕</button>
+                        </div>
+                      : <div>
+                          <div style={{fontSize:12,color:"#94a3b8",marginBottom:3}}>📂 Drop CSV here or click to browse</div>
+                          <div style={{fontSize:9,color:"#1e2d45",fontFamily:"'DM Mono',monospace"}}>Use the template above</div>
+                        </div>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab==="deadlines"&&(
+          <div style={{background:"#0c1420",border:"1px solid #0f1e30",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"14px 22px",borderBottom:"1px solid #0f1e30",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#94a3b8"}}>Reporting Deadlines · {year}</div>
+              <div style={{fontSize:10,color:AMBER,fontFamily:"'DM Mono',monospace"}}>Next: August → Sep 15 · 6 days</div>
+            </div>
+            <div style={{padding:8}}>
+              {deadlines.map((d,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 16px",borderRadius:8,marginBottom:2,background:d.status==="current"?"#0f1e30":"transparent",border:d.status==="current"?"1px solid #1e3a5f":"1px solid transparent"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:14}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:d.status==="done"?GREEN:d.status==="current"?AMBER:"#1e2d45"}}/>
+                    <span style={{fontSize:13,color:d.status==="done"?SLATE:d.status==="current"?"#e2e8f0":"#475569",fontWeight:d.status==="current"?600:400}}>{d.month}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:24}}>
+                    <span style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:SLATE}}>Due {d.due}</span>
+                    {d.status==="done"     &&<span style={{fontSize:11,color:GREEN, fontFamily:"'DM Mono',monospace"}}>✓ Submitted</span>}
+                    {d.status==="current"  &&<span style={{fontSize:11,color:AMBER, fontFamily:"'DM Mono',monospace",fontWeight:600}}>{d.daysLeft} days left</span>}
+                    {d.status==="upcoming" &&<span style={{fontSize:11,color:"#334155",fontFamily:"'DM Mono',monospace"}}>in {d.daysLeft} days</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      <AiAssistant financialContext={{
+        period:      MONTHS[S]+"–"+MONTHS[E],
+        year,
+        actLastMonth:MONTHS[actLast],
+        compLabel,
+        revenue:     fmt(totRev),
+        revVar:      fmt(totRev - sum(sl(comp.revenue,S,E))),
+        ebitda:      fmt(sum(sl(actuals.ebitda,S,E))),
+        netProfit:   fmt(totNet),
+        equity:      fmt(endEq),
+        cash:        fmt(actuals.cash[E]||0),
+        gmPct, emPct, roePct, eqR, gear, intCov, dso, dio, dpo,
+      }}/>
+
+    </div>
+  );
+}
+
+function LoginScreen({onLogin}) {
+  const [pw, setPw] = React.useState("");
+  const [err, setErr] = React.useState(false);
+  const submit = () => {
+    if (pw === PASSWORD) { sessionStorage.setItem(SESSION_KEY, "1"); onLogin(); }
+    else { setErr(true); setTimeout(()=>setErr(false), 1200); }
+  };
+  return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#080b12",fontFamily:"'DM Sans',sans-serif"}}>
+      <div style={{width:340,padding:"40px 36px",background:"#0c1420",border:"1px solid #1e2d45",borderRadius:16,boxShadow:"0 20px 60px #000c"}}>
+        <div style={{marginBottom:28,textAlign:"center"}}>
+          <img src="https://y-lehti.fi/wp-content/uploads/2024/09/logo_tf-1024x293.png" alt="Targetflow" style={{width:180,marginBottom:12,filter:"brightness(0) invert(1)"}}/>
+          <div style={{fontSize:13,color:ACCENT,fontFamily:"'DM Mono',monospace"}}>Strand Group</div>
+        </div>
+        <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+          placeholder="Password"
+          style={{width:"100%",background:"#070c17",border:"1px solid "+(err?"#f87171":"#1e2d45"),borderRadius:9,padding:"11px 14px",color:"#e2e8f0",fontSize:13,outline:"none",fontFamily:"'DM Sans',sans-serif",marginBottom:12,boxSizing:"border-box",transition:"border-color 0.2s"}}
+        />
+        <button onClick={submit} style={{width:"100%",padding:"11px",background:ACCENT,border:"none",borderRadius:9,color:"#080b12",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+          Sign in →
+        </button>
+        {err && <div style={{marginTop:10,textAlign:"center",fontSize:12,color:"#f87171",fontFamily:"'DM Mono',monospace"}}>Incorrect password</div>}
       </div>
     </div>
-  )
+  );
 }
+
+function AppWithAuth() {
+  const [authed, setAuthed] = React.useState(!!sessionStorage.getItem(SESSION_KEY));
+  if (!authed) return <LoginScreen onLogin={()=>setAuthed(true)}/>;
+  return <Dashboard/>;
+}
+
+export default AppWithAuth;
