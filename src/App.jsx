@@ -32,7 +32,7 @@ const PASSWORD      = 'strand2026!';
 const SESSION_KEY   = 'strand_auth';
 const ACCENT        = '#60a5fa';
 const CLIENT_NAME   = 'Strand Group';
-const ALLOWED_EMAILS = ['merkku@1306.fi', 'jenni.kynnos@itsybitsy.fi', 'sirena@strand.es', 'anssi@kiviranta.fi'];
+const ALLOWED_EMAILS = ['merkku@1306.fi', 'jenni.kynnos@itsybitsy.fi', 'sirena@strand.es', 'anssi@kiviranta.fi', "niklas.isaksson@targetflow.fi"];
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const BLUE="#3b82f6",GREEN="#22c55e",AMBER="#f59e0b",RED="#f87171",PURPLE="#a78bfa",CYAN="#06b6d4",SLATE="#64748b";
