@@ -2283,9 +2283,93 @@ function Dashboard() {
     const csv=["# Targetflow Actuals — "+year,"# actuals_last: last confirmed month 1-12",hdr,"actuals_last,"+(actLast+1)+",0,0,0,0,0,0,0,0,0,0,0",...rows].join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="targetflow_actuals_"+year+".csv";a.click();
   };
+  const parseProcountorCSV = (content) => {
+    // Convert ISO-8859-1 style content to usable format
+    const lines = content.replace(/\r/g, '').split('\n');
+    let months = [];
+    let dataStart = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const parts = lines[i].split(';');
+      if (parts.length > 2 && /^\d+\/\d{4}$/.test(parts[1]?.trim())) {
+        months = parts.slice(1).filter(p => p.trim() && !p.includes('-')).map(p => p.trim());
+        dataStart = i + 1;
+        break;
+      }
+      if (parts.length > 2 && /^\d+\.\d+\.\d{4}$/.test(parts[1]?.trim())) {
+        months = parts.slice(1).filter(p => p.trim()).map(p => p.trim());
+        dataStart = i + 1;
+        break;
+      }
+    }
+    const rows = {};
+    for (let i = dataStart; i < lines.length; i++) {
+      const parts = lines[i].split(';');
+      const label = parts[0]?.trim();
+      if (!label || parts.length < 2) continue;
+      const vals = parts.slice(1, 13).map(v => {
+        const n = parseFloat((v||'').trim().replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+      });
+      while (vals.length < 12) vals.push(0);
+      rows[label] = vals;
+    }
+    return { rows, months };
+  };
+
   const parseFile=(file,isAct)=>{
     if(!file) return;
     const ext=file.name.split(".").pop().toLowerCase();
+
+    // Procountor CSV detection (semicolon separated Finnish accounting export)
+    if(ext==="csv") {
+      setActName(file.name);
+      const r = new FileReader();
+      r.onload = ev => {
+        try {
+          // Detect if this is Procountor format (has Tuloslaskelma or Tase header)
+          const raw = ev.target.result;
+          const isProcountor = raw.includes('Tuloslaskelma') || raw.includes('Tase') || raw.includes('Liikevaihto');
+          if (isProcountor) {
+            // Check if we already have the other file cached
+            const isPL = raw.includes('Tuloslaskelma') || raw.includes('Liikevaihto');
+            const isBS = raw.includes('Tase') && !raw.includes('Tuloslaskelma');
+            if (isPL) {
+              window._procountorPL = raw;
+              if (window._procountorBS) mergeProcountor();
+              else alert('P&L imported ✓\nNow import the Balance Sheet (Tase) CSV to complete.');
+            } else if (isBS) {
+              window._procountorBS = raw;
+              if (window._procountorPL) mergeProcountor();
+              else alert('Balance Sheet imported ✓\nNow import the P&L (Tuloslaskelma) CSV to complete.');
+            }
+            return;
+          }
+          // Fall through to original CSV logic
+          const lines=raw.split("\n").map(l=>l.trim()).filter(l=>l&&!l.startsWith("#"));
+          const hIdx=lines.findIndex(l=>l.toLowerCase().startsWith("field"));
+          if(hIdx===-1){alert("No header row found");return;}
+          const cols=lines[hIdx].split(",").map(c=>c.trim().toLowerCase());
+          const mCols=MONTHS.map(m=>cols.indexOf(m.toLowerCase()));
+          const parsed={};let newLast=actLast;
+          for(let i=hIdx+1;i<lines.length;i++){
+            const parts=lines[i].split(",");
+            const fname=parts[0]&&parts[0].trim().toLowerCase();
+            if(!fname) continue;
+            if(isAct&&fname==="actuals_last"){const v=parseInt(parts[1]);if(!isNaN(v)&&v>=1&&v<=12)newLast=v-1;continue;}
+            const match=CSV_FIELDS.find(f=>f.label===fname);
+            if(!match) continue;
+            parsed[match.key]=mCols.map(ci=>{if(ci===-1)return 0;const v=parseFloat(parts[ci]);return isNaN(v)?0:v;});
+          }
+          const base=isAct?actBase:budBase;
+          const result={...base,...parsed};
+          if(parsed.revenue&&parsed.cogs) result.grossProfit=parsed.revenue.map((v,i)=>v-(parsed.cogs[i]||0));
+          if(isAct){setActData(result);setActLast(newLast);}else setCsvData(result);
+        } catch(err){alert("CSV error: "+err.message);}
+      };
+      r.readAsText(file, 'ISO-8859-1');
+      return;
+    }
+
     if(ext==="xlsx"||ext==="xls"||ext==="ods"){
       // Excel path — use SheetJS
       if(!window.XLSX){alert("SheetJS not loaded — please refresh");return;}
@@ -2336,6 +2420,49 @@ function Dashboard() {
       };
       r.readAsText(file);
     }
+  };
+
+  const mergeProcountor = () => {
+    try {
+      const pl = parseProcountorCSV(window._procountorPL);
+      const bs = parseProcountorCSV(window._procountorBS);
+      const g = (rows, ...keys) => { for(const k of keys) if(rows[k]) return rows[k]; return Array(12).fill(0); };
+      const revenue      = g(pl.rows, 'Liikevaihto');
+      const cogs         = g(pl.rows, 'Materiaalit ja palvelut yhteensä');
+      const personnel    = g(pl.rows, 'Henkilöstökulut yhteensä');
+      const depreciation = g(pl.rows, 'Poistot ja arvonalentumiset yhteensä');
+      const opex         = g(pl.rows, 'Liiketoiminnan muut kulut');
+      const ebit         = g(pl.rows, 'Liikevoitto (-tappio)');
+      const financials   = g(pl.rows, 'Rahoitustuotot ja -kulut yhteensä');
+      const netProfit    = g(pl.rows, 'Tilikauden voitto (tappio)');
+      const totalAssets  = g(bs.rows, 'VASTAAVAA YHTEENSÄ');
+      const equity       = g(bs.rows, 'Oma pääoma yhteensä');
+      const totalLiab    = g(bs.rows, 'Vieras pääoma yhteensä');
+      const cash         = g(bs.rows, 'Rahat ja pankkisaamiset');
+      const currentAssets= g(bs.rows, 'Vaihtuvat vastaavat yhteensä');
+      const fixedAssets  = g(bs.rows, 'Pysyvät vastaavat yhteensä');
+      const currentLiab  = g(bs.rows, 'Lyhytaikainen vieras pääoma yhteensä');
+      const receivables  = g(bs.rows, 'Lyhytaikaiset saamiset yhteensä');
+      const grossProfit  = revenue.map((v,i) => v + cogs[i]);
+      const ebitda       = ebit.map((v,i) => v - depreciation[i]);
+      const result = {
+        ...actBase,
+        revenue, cogs, personnel, depreciation, opex, ebit, financials, netProfit,
+        totalAssets, equity, totalLiab, cash, currentAssets, fixedAssets,
+        currentLiab, receivables, grossProfit, ebitda,
+        finExpenses: financials.map(v => v < 0 ? v : 0),
+        depAmort: depreciation,
+      };
+      // Detect last actuals month (last month with non-zero revenue)
+      let lastAct = 0;
+      for(let i = 0; i < 12; i++) { if(revenue[i] !== 0) lastAct = i; }
+      setActData(result);
+      setActLast(lastAct);
+      setActName('Procountor import');
+      window._procountorPL = null;
+      window._procountorBS = null;
+      alert(`✓ Procountor data imported successfully!\nActuals through: ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][lastAct]}`);
+    } catch(err) { alert('Procountor merge error: ' + err.message); }
   };
 
   const TABS=[
